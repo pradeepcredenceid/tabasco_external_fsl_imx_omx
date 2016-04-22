@@ -93,6 +93,9 @@ class Muxer : public ComponentBase {
 		OMX_PTR hContent;
 		OMX_U32 nURLLen;
         OMX_U32 nRotateDegree;
+        OMX_S32 nCaptureFps;
+        OMX_U8* pAndroidVersion;
+        OMX_U32 nAndroidVersionLen;
 
         OMX_ERRORTYPE InitComponent();
         OMX_ERRORTYPE DeInitComponent();
@@ -141,6 +144,8 @@ class Muxer : public ComponentBase {
 		virtual OMX_U32 GetTrailerSize();
         virtual OMX_ERRORTYPE AddSampleDone();
         virtual OMX_ERRORTYPE AddTrackRotate(OMX_U32 track, OMX_U32 rotateDegree) = 0;
+        virtual OMX_ERRORTYPE AddCaptureFpsInfo(OMX_S32 fps) = 0;
+        virtual OMX_ERRORTYPE AddAndroidVersion(OMX_U8* string,OMX_U32 len) = 0;
 };
 
 #endif

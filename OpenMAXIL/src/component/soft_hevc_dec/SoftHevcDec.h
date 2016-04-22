@@ -1,5 +1,5 @@
 /**
- *  Copyright (c) 2014, Freescale Semiconductor Inc.,
+ *  Copyright (c) 2014-2016, Freescale Semiconductor Inc.,
  *  All Rights Reserved.
  *
  *  The following programs are the sole property of Freescale Semiconductor Inc.,
@@ -88,13 +88,10 @@ class SoftHevcDec : public VideoFilter {
         OMX_VIDEO_CODINGTYPE CodingType;
 
         iv_obj_t *mCodecCtx;         // Codec context
-        iv_mem_rec_t *mMemRecords;   // Memory records requested by the codec
-        OMX_U32 mNumMemRecords;       // Number of memory records requested by the codec
         IVD_FRAME_SKIP_MODE_T skipMode; //skip mode for qos
 
         OMX_ERRORTYPE initDecoder();
         OMX_ERRORTYPE deInitDecoder();
-        OMX_ERRORTYPE reInitDecoder();
 
         void logVersion();
         OMX_ERRORTYPE setNumCores();
@@ -106,6 +103,7 @@ class SoftHevcDec : public VideoFilter {
         OMX_ERRORTYPE ParseCodecInfo();
         OMX_U32 parseNALSize(OMX_U8 *data);
 
+        OMX_ERRORTYPE AllocateFlushBuffer();
 
 };
 

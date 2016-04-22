@@ -212,7 +212,7 @@ OMX_ERRORTYPE VideoSource::GetParameter(
 			}
 			break;
         default:
-            ret = OMX_ErrorUnsupportedIndex;
+            ret = InstanceGetParameter(nParamIndex, pStructure);
             break;
     }
 
@@ -292,11 +292,25 @@ OMX_ERRORTYPE VideoSource::SetParameter(
 			}
 			break;
 		default:
-			ret = OMX_ErrorUnsupportedIndex;
+			ret = InstanceSetParameter(nParamIndex, pStructure);
             break;
     }
 
     return ret;
+}
+
+OMX_ERRORTYPE VideoSource::InstanceGetParameter(
+        OMX_INDEXTYPE nParamIndex,
+        OMX_PTR pStructure)
+{
+    return OMX_ErrorUnsupportedIndex;
+}
+
+OMX_ERRORTYPE VideoSource::InstanceSetParameter(
+        OMX_INDEXTYPE nParamIndex,
+        OMX_PTR pStructure)
+{
+    return OMX_ErrorUnsupportedIndex;
 }
 
 OMX_ERRORTYPE VideoSource::GetConfig(

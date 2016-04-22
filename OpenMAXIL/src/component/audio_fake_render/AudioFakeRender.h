@@ -30,7 +30,7 @@ class AudioFakeRender : public AudioRender {
         OMX_ERRORTYPE ResetDevice();
         OMX_ERRORTYPE DrainDevice();
 		OMX_ERRORTYPE DeviceDelay(OMX_U32 *nDelayLen);
-        OMX_ERRORTYPE WriteDevice(OMX_U8 *pBuffer, OMX_U32 nActuralLen);
+        OMX_ERRORTYPE WriteDevice(OMX_U8 *pBuffer, OMX_U32 nActuralLen, OMX_U32 *nConsumedLen);
 
 };
 

@@ -1,5 +1,5 @@
 /**
- *  Copyright (c) 2011-2014, Freescale Semiconductor Inc.,
+ *  Copyright (c) 2011-2015, Freescale Semiconductor Inc.,
  *  All Rights Reserved.
  *
  *  The following programs are the sole property of Freescale Semiconductor Inc.,
@@ -28,6 +28,10 @@
 #if (ANDROID_VERSION >= JELLY_BEAN_42)
 #define LOGE ALOGE
 #define LOGV ALOGV
+#endif
+
+#if (ANDROID_VERSION >= MARSH_MALLOW_600)
+#include "media/openmax/OMX_IndexExt.h"
 #endif
 
 #define MAX_BUFFER_CNT (32)
@@ -321,6 +325,7 @@ FSLOMXWrapper::FSLOMXWrapper()
     bGotPixelFormat = OMX_FALSE;
     memset(&WrapperHandle, 0, sizeof(OMX_COMPONENTTYPE));
     memset(sBufferMapper, 0, sizeof(BufferMapper) * MAX_BUFFER_CNT);
+    bEnableNativeBuffers = OMX_FALSE;
 }
 
 OMX_COMPONENTTYPE *FSLOMXWrapper::MakeWapper(OMX_HANDLETYPE pHandle)
@@ -432,6 +437,15 @@ OMX_ERRORTYPE FSLOMXWrapper::GetParameter(
 
                 if(pParams->eCompressionFormat == OMX_VIDEO_CodingVP9)
                     pParams->eCompressionFormat = (OMX_VIDEO_CODINGTYPE)10;
+            }
+            break;
+#endif
+
+#if (ANDROID_VERSION >= MARSH_MALLOW_600)
+            case OMX_IndexParamConsumerUsageBits:
+            {
+                OMX_U32 *usageBits = (OMX_U32 *)pStructure;
+                *usageBits = GRALLOC_USAGE_HW_VIDEO_ENCODER | GRALLOC_USAGE_FORCE_CONTIGUOUS;
             }
             break;
 #endif
@@ -690,9 +704,14 @@ OMX_ERRORTYPE FSLOMXWrapper::EmptyThisBuffer(
 		else if(nMetadataBufferType == kMetadataBufferTypeGrallocSource) {
 			LOGV("MetadataBufferType is kMetadataBufferTypeGrallocSource");
         }
-#if ((ANDROID_VERSION >= LOLLIPOP_50))
+#if (ANDROID_VERSION >= LOLLIPOP_50) && (ANDROID_VERSION < MARSH_MALLOW_600)
         else if(nMetadataBufferType == kMetadataBufferTypeGraphicBuffer){
             LOGV("MetadataBufferType is kMetadataBufferTypeGraphicBuffer");
+            bGraphicBuffer = OMX_TRUE;
+        }
+#elif (ANDROID_VERSION >= MARSH_MALLOW_600)
+        else if(nMetadataBufferType == kMetadataBufferTypeANWBuffer){
+            LOGV("MetadataBufferType is kMetadataBufferTypeANWBuffer");
             bGraphicBuffer = OMX_TRUE;
         }
 #endif
@@ -823,9 +842,15 @@ OMX_ERRORTYPE FSLOMXPlugin::getRolesOfComponent(
 
         OMX_U32 numRoles2;
         ret = OMX_GetRolesOfComponent((char*)name, &numRoles2, array);
-        if(ret != OMX_ErrorNone)
+        if(ret != OMX_ErrorNone){
+            for (i = 0; i < (OMX_S32)numRoles; ++i) {
+                delete[] array[i];
+                array[i] = NULL;
+            }
+            delete[] array;
+            array = NULL;
             return ret;
-
+        }
         for (i = 0; i < (OMX_S32)numRoles; ++i) {
             String8 s((const char   *)array[i]);
             roles->push(s);

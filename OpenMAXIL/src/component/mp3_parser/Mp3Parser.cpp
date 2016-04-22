@@ -131,8 +131,10 @@ OMX_ERRORTYPE Mp3Parser::GetMetadata(OMX_CONFIG_METADATAITEMTYPE *pMatadataItem)
             return OMX_ErrorInsufficientResources;
 
 		ret = obj->SetSource(Content, Pipe);
-		if(ret != OMX_ErrorNone)
+		if(ret != OMX_ErrorNone) {
+            FSL_DELETE(obj);
 			return ret;
+        }
 
 		ret = obj->InstanceInit();
 		if(ret != OMX_ErrorNone)

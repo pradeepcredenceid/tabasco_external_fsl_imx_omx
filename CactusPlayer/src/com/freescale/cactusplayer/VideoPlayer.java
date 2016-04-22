@@ -207,6 +207,7 @@ public class VideoPlayer extends Activity implements HdmiApplication.Callback,
         private long mLastDuration = 0;
         private int mLastPlayState = -1;
         private boolean restart = false;
+        private boolean bGetTrackInfo = false;
 
 // onPresentationEnded
     public void onPresentationEnded(boolean end) {
@@ -623,7 +624,7 @@ public class VideoPlayer extends Activity implements HdmiApplication.Callback,
             s += seconds;
             mCurPosView.setText(s);
             if(mDuration > 0) {
-                int pos = (int) (mCurPos/1000*1000 * 100 / mDuration);
+                int pos = (int) (mCurPos/1000*1000 * 100 / mDuration + 1);
                 if(pos < 0)
                     pos = 0;
                 else if(pos > 100)
@@ -789,6 +790,7 @@ public class VideoPlayer extends Activity implements HdmiApplication.Callback,
                     //}
                 }
             }
+
         }
     };
 
@@ -905,7 +907,10 @@ public class VideoPlayer extends Activity implements HdmiApplication.Callback,
                 mMediaPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
                 mMediaPlayer.setScreenOnWhilePlaying(true);
                 Log.w(TAG,"Url is " + mUrl);
+
                 do{
+                    if(true == mUrl.startsWith("udp"))
+                        break;
                     if(mUrl.lastIndexOf('.') <= 0 || mUrl.lastIndexOf('.') >= mUrl.length()-1)
                         break;
                     if(mUrl.lastIndexOf('/') < 0 || mUrl.lastIndexOf('/') >= mUrl.length()-1)
@@ -1098,6 +1103,40 @@ public class VideoPlayer extends Activity implements HdmiApplication.Callback,
         }
     }
 
+    private void createAudioAndSubtitleMenu(Menu menu)
+    {
+        Log.d(TAG,"createAudioAndSubtitleMenu");
+        //add select audio icon
+        if(mMediaPlayer != null){
+            MediaPlayer.TrackInfo[] ti ;
+            try{
+                ti = mMediaPlayer.getTrackInfo();
+
+            }
+            catch (Exception e){
+                Log.d(TAG, "Failed to get track info when creating menu");
+                return ;
+            }
+            int totalCount = ti.length;
+            Log.v(TAG,"total track count " + totalCount);
+            for(int i = 0; i< totalCount ; i++){
+                if(ti[i].getTrackType() == MediaPlayer.TrackInfo.MEDIA_TRACK_TYPE_AUDIO)
+                    mAudioTrackCount++;
+                else if(ti[i].getTrackType() == MediaPlayer.TrackInfo.MEDIA_TRACK_TYPE_TIMEDTEXT)
+                    mSubtitleTrackCount++;
+            }
+        }
+
+        if(mAudioTrackCount >= 2 && null == menu.findItem(SELECT_AUDIO)){
+            menu.add(0, SELECT_AUDIO, 0, getString(R.string.SelectAudio));
+        }
+        
+        if(mSubtitleTrackCount >= 1){
+            menu.add(0, SELECT_SUBTITLE, 0, getString(R.string.SelectSubtitle));
+            menu.add(0, CLOSE_SUBTITLE,	0, getString(R.string.CloseSubtitle));
+        }
+
+    }
     //------------------------------------------------------------------------------------
     // GUI messages
     //------------------------------------------------------------------------------------
@@ -1112,6 +1151,12 @@ public class VideoPlayer extends Activity implements HdmiApplication.Callback,
         mPresentation = mHdmiApp.getPresentation();
         if(mPlaySpeed == 1 && (mPlayState == PLAYER_PLAYING || mPlayState == PLAYER_PAUSED))
             enabled = true;
+
+        if((mPlayState == PLAYER_PLAYING || mPlayState == PLAYER_PAUSED) && false == bGetTrackInfo){
+            createAudioAndSubtitleMenu( menu);
+            bGetTrackInfo = true;
+        }
+
         item = menu.findItem(SELECT_AUDIO);
         if(item != null)
             item.setEnabled(enabled);
@@ -1208,32 +1253,6 @@ public class VideoPlayer extends Activity implements HdmiApplication.Callback,
             CastScreen_flag = false;
         }
 
-        if(mMediaPlayer != null){
-            MediaPlayer.TrackInfo[] ti ;
-            try{
-                ti = mMediaPlayer.getTrackInfo();
-            }
-            catch (Exception e){
-                Log.d(TAG, "Failed to get track info when creating menu");
-                return false;
-            }
-            int totalCount = ti.length;
-            Log.v(TAG,"total track count " + totalCount);
-            for(int i = 0; i< totalCount ; i++){
-                if(ti[i].getTrackType() == MediaPlayer.TrackInfo.MEDIA_TRACK_TYPE_AUDIO)
-                    mAudioTrackCount++;
-                else if(ti[i].getTrackType() == MediaPlayer.TrackInfo.MEDIA_TRACK_TYPE_TIMEDTEXT)
-                    mSubtitleTrackCount++;
-            }
-        }
-
-        if(mAudioTrackCount >= 2){
-            menu.add(0, SELECT_AUDIO, 0, getString(R.string.SelectAudio));
-        }
-        if(mSubtitleTrackCount >= 1){
-            menu.add(0, SELECT_SUBTITLE, 0, getString(R.string.SelectSubtitle));
-            menu.add(0, CLOSE_SUBTITLE,	0, getString(R.string.CloseSubtitle));
-        }
         return true;
     }
 

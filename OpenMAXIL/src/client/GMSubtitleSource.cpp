@@ -39,6 +39,7 @@ GMInbandSubtitleSource::GMInbandSubtitleSource(GMPlayer *player)
     mType = TYPE_UNKNOWN;
     bReturnEndTime = OMX_FALSE;
     pBuffer = NULL;
+    mEndTime = 0;
 }
 
 GMInbandSubtitleSource::~GMInbandSubtitleSource()
@@ -58,6 +59,7 @@ OMX_ERRORTYPE GMInbandSubtitleSource::SetType(OMX_STRING type)
     switch(mType1) {
         case TYPE_3GPP:
             nLen = BUFFER_SIZE_3GP;
+            break;
         case TYPE_SRT:
             nLen = BUFFER_SIZE_SRT;
         default:
@@ -177,6 +179,7 @@ GMOutbandSubtitleSource::GMOutbandSubtitleSource(
     mAVPlayer = player;
     mType = GetSubtitleType(type);
     mInit = OMX_FALSE;
+    mSubtitleParser = NULL;
     if(mType == TYPE_SRT) {
         mSubtitleParser = FSL_NEW(SRTParser, (pipe, url));
         if(mSubtitleParser == NULL)
@@ -198,7 +201,9 @@ OMX_ERRORTYPE GMOutbandSubtitleSource::Init()
     if(mInit != OMX_TRUE)
         return OMX_ErrorInsufficientResources;
 
-    ret = mSubtitleParser->Init();
+    if(mSubtitleParser)
+        ret = mSubtitleParser->Init();
+
     if(ret != OMX_ErrorNone)
         return ret;
 
@@ -215,7 +220,10 @@ void GMOutbandSubtitleSource::DeInit()
 
 OMX_ERRORTYPE GMOutbandSubtitleSource::SeekTo(OMX_TICKS pos)
 {
-    return mSubtitleParser->SeekTo(pos);
+    if(mSubtitleParser)
+        return mSubtitleParser->SeekTo(pos);
+    else
+        return OMX_ErrorNotImplemented;
 }
 
 OMX_ERRORTYPE GMOutbandSubtitleSource::GetNextSubtitleSample(
@@ -223,7 +231,10 @@ OMX_ERRORTYPE GMOutbandSubtitleSource::GetNextSubtitleSample(
         OMX_BOOL &bEOS)
 {
     LOG_DEBUG("GMOutbandSubtitleSource::GetNextSubtitleSample\n");
-    return mSubtitleParser->GetOneSample(sample, bEOS);
+    if(mSubtitleParser)
+        return mSubtitleParser->GetOneSample(sample, bEOS);
+    else
+        return OMX_ErrorNotImplemented;
 }
 
 
@@ -360,6 +371,9 @@ SRTParser::SRTParser(CP_PIPETYPE *hPipe, OMX_STRING url)
     mTimeTableEntrySize = 0;
     mTimeTableIndex = 0;
     mTimeTableSize = SRT_TIME_TABLE_SIZE;
+    mStartTime = 0;
+    mEndTime = 0;
+    bReturnEndTime = OMX_FALSE;
     mBuffer = (OMX_U8*)FSL_MALLOC(BUFFER_SIZE_SRT);
     if(mBuffer == NULL) {
         LOG_ERROR("failed allocate buffer for SRTParser.\n");
@@ -375,6 +389,7 @@ SRTParser::SRTParser(CP_PIPETYPE *hPipe, OMX_STRING url)
         LOG_ERROR("failed to create time table for srt.\n");
         return;
     }
+
     mInit = OMX_TRUE;
 }
 

@@ -354,6 +354,10 @@ ff_rdt_parse_packet(RDTDemuxContext *s, AVPacket *pkt,
 
     if (len < 12)
         return -1;
+
+    if (!buf)
+        return -1;
+
     rv = ff_rdt_parse_header(buf, len, &set_id, &seq_no, &stream_id, &is_keyframe, &timestamp);
     if (rv < 0)
         return rv;
@@ -523,7 +527,9 @@ rdt_new_context (void)
 {
     PayloadContext *rdt = av_mallocz(sizeof(PayloadContext));
 
-    av_open_input_stream(&rdt->rmctx, NULL, "", &ff_rdt_demuxer, NULL);
+    if(av_open_input_stream(&rdt->rmctx, NULL, "", &ff_rdt_demuxer, NULL) < 0){
+        printf("open input stream fail!");
+    }
 
     return rdt;
 }

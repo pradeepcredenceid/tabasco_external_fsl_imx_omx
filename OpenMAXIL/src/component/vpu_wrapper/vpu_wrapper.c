@@ -1,5 +1,5 @@
 /*
- *  Copyright (c) 2010-2015, Freescale Semiconductor Inc.,
+ *  Copyright (c) 2010-2016, Freescale Semiconductor Inc.,
  *  All Rights Reserved.
  *
  *  The following programs are the sole property of Freescale Semiconductor Inc.,
@@ -734,7 +734,7 @@ int VC1CreateNALSeqHeader(unsigned char* pHeader, int* pHeaderLen,
 }
 
 int VC1CreateRCVSeqHeader(unsigned char* pHeader, int* pHeaderLen, 
-	unsigned char* pCodecPri,unsigned int nFrameSize,int nWidth,int nHeight)
+	unsigned char* pCodecPri,unsigned int nFrameSize,int nWidth,int nHeight,int* pNoError)
 {
 	int nHeaderLen;
 
@@ -768,6 +768,8 @@ int VC1CreateRCVSeqHeader(unsigned char* pHeader, int* pHeaderLen,
 	if((profile!=0)&&(profile!=4)&&(profile!=12))
 	{
 		VPU_ERROR("unsuport profile: %d, private: 0x%X \r\n",profile,*((unsigned int*)pCodecPri));
+		//it is reasonable to return error immediately since only one sequence header inserted in whole rcv clip
+		*pNoError=0;
 	}
 	vpu_memcpy(pHeader+i, pCodecPri, HdrExtDataLen);
 	i += HdrExtDataLen;
@@ -2104,7 +2106,7 @@ int VpuConvertAvccHeader(unsigned char* pCodecData, unsigned int nSize, unsigned
 	unsigned char* pSPS, *pPPS;
 	int spsSize,ppsSize;
 	int numPPS, outSize=0;
-	unsigned char* pTemp;
+	unsigned char* pTemp=NULL;
 	int tempBufSize=0;
 	/* [0]: version */
 	/* [1]: profile */
@@ -2179,6 +2181,9 @@ corrupt_header:
 	VPU_ERROR("error: codec data corrupted ! \r\n");
 	*ppOut=pCodecData;
 	*pOutSize=nSize;
+	if(pTemp){
+		vpu_free(pTemp);
+	}
 	return 0;
 }
 
@@ -2339,6 +2344,9 @@ int VpuConvertAvccFrame(unsigned char* pData, unsigned int nSize, int nNalSizeLe
 
 corrupt_data:
 	VPU_ERROR("error: the nal data corrupted ! \r\n");
+	if(pNewFrm){
+		vpu_free(pNewFrm);
+	}
 	return 0;
 }
 
@@ -2600,6 +2608,8 @@ int VpuSeqInit(DecHandle InVpuHandle, VpuDecObj* pObj ,VpuBufferNode* pInData,in
 
 	unsigned char* pHeader=NULL;
 	unsigned int headerLen=0;
+	unsigned int headerAllocated=0;
+	int init_ok=0;
 
 	unsigned char aVC1Header[VC1_MAX_SEQ_HEADER_SIZE];
 	unsigned char aVP8Header[VP8_SEQ_HEADER_SIZE+VP8_FRM_HEADER_SIZE];
@@ -2645,7 +2655,7 @@ int VpuSeqInit(DecHandle InVpuHandle, VpuDecObj* pObj ,VpuBufferNode* pInData,in
 				{
 					//1 nSize must == frame size ??? 
 					VPU_LOG("%s: [width x height]=[%d x %d] , frame size =%d \r\n",__FUNCTION__,pObj->picWidth,pObj->picHeight,pInData->nSize);
-					VC1CreateRCVSeqHeader(pHeader, (int*)(&headerLen),pInData->sCodecData.pData, pInData->nSize,pObj->picWidth,pObj->picHeight);
+					VC1CreateRCVSeqHeader(pHeader, (int*)(&headerLen),pInData->sCodecData.pData, pInData->nSize,pObj->picWidth,pObj->picHeight,pNoErr);
 				}
 
 #ifdef VPU_WRAPPER_DEBUG
@@ -2784,6 +2794,9 @@ int VpuSeqInit(DecHandle InVpuHandle, VpuDecObj* pObj ,VpuBufferNode* pInData,in
 					}
 					if(pObj->nIsAvcc){
 						VpuConvertAvccHeader(pInData->sCodecData.pData,pInData->sCodecData.nSize, &pHeader,&headerLen);
+						if(pInData->sCodecData.pData != pHeader){
+							headerAllocated=1;
+						}
 					}
 					else{
 						pHeader=pInData->sCodecData.pData;
@@ -2828,7 +2841,8 @@ int VpuSeqInit(DecHandle InVpuHandle, VpuDecObj* pObj ,VpuBufferNode* pInData,in
 		*pNoErr=0;
 		total_size=0;	//clear 0
 		total_loop=0;
-		return 0;
+		init_ok=0;
+		goto FINISH;
 	}
 	else
 	{
@@ -2837,9 +2851,6 @@ int VpuSeqInit(DecHandle InVpuHandle, VpuDecObj* pObj ,VpuBufferNode* pInData,in
 		if(0!=headerLen)
 		{
 			fill_ret=VpuFillData(InVpuHandle,pObj,pHeader,headerLen,1,0);
-			if(pObj->nIsAvcc && (pInData->sCodecData.pData != pHeader)){
-				vpu_free(pHeader); //the logic should make sure it won't be freed repeatedly
-			}
 			if(0==pObj->nPrivateSeqHeaderInserted)
 			{
 				VpuAccumulateConsumedBytes(pObj, headerLen, 0,NULL,NULL);	//seq/config 
@@ -2892,7 +2903,8 @@ int VpuSeqInit(DecHandle InVpuHandle, VpuDecObj* pObj ,VpuBufferNode* pInData,in
 		{
 			//not inited
 			*pOutRetCode=VPU_DEC_INPUT_USED;
-			return 0;
+			init_ok=0;
+			goto FINISH;
 		}
 		VPU_LOG("have collect %d bytes data to start seq init \r\n",VPU_MIN_INIT_SIZE);
 #endif	
@@ -2936,7 +2948,8 @@ int VpuSeqInit(DecHandle InVpuHandle, VpuDecObj* pObj ,VpuBufferNode* pInData,in
 			*pNoErr=0;
 			pObj->nLastErrorInfo=VPU_DEC_ERR_NOT_SUPPORTED;
 		}
-		return 0;
+		init_ok=0;
+		goto FINISH;
 	}
 	else
 	{
@@ -3034,8 +3047,25 @@ int VpuSeqInit(DecHandle InVpuHandle, VpuDecObj* pObj ,VpuBufferNode* pInData,in
 #endif
 		pObj->nOriHeight=pObj->initInfo.nPicHeight;
 		pObj->nOriWidth=pObj->initInfo.nPicWidth;
-		return 1;
+
+		if(pObj->nDecResolutionChangeEnabled!=0){
+			//update 'nLastFrameEndPosPhy' for special case: there are two different SPS headers(will cause resolution change) before the first frame
+			PhysicalAddress Rd;
+			PhysicalAddress Wr;
+			unsigned long nSpace;
+			ret=vpu_DecGetBitstreamBuffer(InVpuHandle, &Rd, &Wr, &nSpace);
+			pObj->nLastFrameEndPosPhy=Rd;
+			pObj->nAccumulatedConsumedStufferBytes+=Rd-(unsigned int)pObj->pBsBufPhyStart;
+		}
+
+		init_ok=1;
 	}
+
+FINISH:
+	if(headerAllocated){
+		vpu_free(pHeader);
+	}
+	return init_ok;
 
 }
 
@@ -4080,6 +4110,7 @@ int VpuResolutionChangeProcess(DecHandle* pInOutVpuHandle, VpuDecObj* pObj)
 	VpuBufferNode InData;
 	int nOutRetCode=0;
 	int nNoErr=1;
+	int nIsAvcc;
 
 	/*backup sequence data*/
 	VPU_API("calling vpu_DecGetBitstreamBuffer() \r\n");
@@ -4149,7 +4180,10 @@ int VpuResolutionChangeProcess(DecHandle* pInOutVpuHandle, VpuDecObj* pObj)
 	InData.pVirAddr=pObj->pSeqBak;
 	InData.sCodecData.pData=NULL;
 	InData.sCodecData.nSize=0xFFFFFFFF; //regard as raw data
+	nIsAvcc=pObj->nIsAvcc;
+	pObj->nIsAvcc=0;//need to disable conversion temporarily
 	seqOK=VpuSeqInit(InVpuHandle, pObj, &InData, &nOutRetCode,&nNoErr);
+	pObj->nIsAvcc=nIsAvcc;
 	if(0==seqOK)
 	{
 		VPU_ERROR("resolution change: seqinit fail \r\n");
@@ -4407,6 +4441,8 @@ int VpuDecBuf(DecHandle* pVpuHandle, VpuDecObj* pObj ,VpuBufferNode* pInData,int
 		bufUseState=VPU_DEC_INPUT_NOT_USED;	
 	}
 
+	//clear 0 firstly	
+	vpu_memset(&decParam,0,sizeof(DecParam));
 
 	if(VPU_DEC_STATE_DEC==pObj->state)
 	{
@@ -4437,8 +4473,6 @@ int VpuDecBuf(DecHandle* pVpuHandle, VpuDecObj* pObj ,VpuBufferNode* pInData,int
 #endif
 
 		//set dec parameters
-		//clear 0 firstly	
-		vpu_memset(&decParam,0,sizeof(DecParam));
 		decParam.skipframeMode=pObj->skipFrameMode;
 		decParam.skipframeNum=pObj->skipFrameNum;
 		decParam.iframeSearchEnable=pObj->iframeSearchEnable;
@@ -7823,6 +7857,10 @@ VpuEncRetCode VPU_EncOpen(VpuEncHandle *pOutHandle, VpuMemInfo* pInMemInfo,VpuEn
 		return VPU_ENC_RET_INVALID_PARAM;
 	}
 
+	if(pInParam->nFrameRate <=0){
+		VPU_ENC_ERROR("%s: failure: invalid frame rate !\r\n",pInParam->nFrameRate);
+		return VPU_ENC_RET_INVALID_PARAM;
+	}
 	nValidWidth=pInParam->nPicWidth;
 	nValidHeight=pInParam->nPicHeight;
 #ifdef VPU_ENC_ALIGN_LIMITATION
@@ -7921,6 +7959,10 @@ VpuEncRetCode VPU_EncOpen(VpuEncHandle *pOutHandle, VpuMemInfo* pInMemInfo,VpuEn
 			sEncOpenParam.EncStdParam.h263Param.h263_annexKEnable = pInParam->VpuEncStdParam.h263Param.h263_annexKEnable;
 			sEncOpenParam.EncStdParam.h263Param.h263_annexTEnable = pInParam->VpuEncStdParam.h263Param.h263_annexTEnable;
 			sEncOpenParam.bitstreamFormat = STD_H263;
+			if(sEncOpenParam.frameRateInfo<=14){
+				VPU_ENC_ERROR("not supported frame rate for H263: %d, change to 15 \r\n",sEncOpenParam.frameRateInfo);
+				sEncOpenParam.frameRateInfo=15;
+			}
 			break;
 		case VPU_V_AVC:
 			sEncOpenParam.EncStdParam.avcParam.avc_constrainedIntraPredFlag = pInParam->VpuEncStdParam.avcParam.avc_constrainedIntraPredFlag;
@@ -8189,6 +8231,10 @@ VpuEncRetCode VPU_EncOpenSimp(VpuEncHandle *pOutHandle, VpuMemInfo* pInMemInfo,V
 			sEncOpenParamMore.VpuEncStdParam.h263Param.h263_annexJEnable = 1;
 			sEncOpenParamMore.VpuEncStdParam.h263Param.h263_annexKEnable = 0;
 			sEncOpenParamMore.VpuEncStdParam.h263Param.h263_annexTEnable = 0;
+			if(sEncOpenParamMore.nFrameRate<=14){
+				VPU_ENC_ERROR("not supported frame rate for H263: %d, change to 15 \r\n",sEncOpenParamMore.nFrameRate);
+				sEncOpenParamMore.nFrameRate=15;
+			}
 			break;
 		case VPU_V_AVC:
 			sEncOpenParamMore.VpuEncStdParam.avcParam.avc_constrainedIntraPredFlag = 0;

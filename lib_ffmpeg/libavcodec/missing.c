@@ -122,6 +122,7 @@ int ff_mpeg4audio_get_config(MPEG4AudioConfig *c, const uint8_t *buf, int buf_si
 {
     GetBitContext gb;
     int specific_config_bitindex;
+    int temp = 0;
 
     init_get_bits(&gb, buf, buf_size*8);
     c->object_type = get_object_type(&gb);
@@ -170,7 +171,7 @@ int ff_mpeg4audio_get_config(MPEG4AudioConfig *c, const uint8_t *buf, int buf_si
                     c->ps = get_bits1(&gb);
                 break;
             } else
-                get_bits1(&gb); // skip 1 bit
+                temp = get_bits1(&gb); // skip 1 bit
         }
     }
 

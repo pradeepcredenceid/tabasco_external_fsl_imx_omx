@@ -192,7 +192,7 @@ static int udp_socket_create(UDPContext *s,
         goto fail;
     for (res = res0; res; res=res->ai_next) {
         udp_fd = socket(res->ai_family, SOCK_DGRAM, 0);
-        if (udp_fd > 0) break;
+        if (udp_fd >= 0) break;
         av_log(NULL, AV_LOG_ERROR, "socket: %s\n", strerror(errno));
     }
 
@@ -207,8 +207,6 @@ static int udp_socket_create(UDPContext *s,
     return udp_fd;
 
  fail:
-    if (udp_fd >= 0)
-        closesocket(udp_fd);
     if(res0)
         freeaddrinfo(res0);
     return -1;

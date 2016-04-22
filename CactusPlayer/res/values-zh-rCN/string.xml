@@ -19,6 +19,8 @@
     <string name="Remote_control">"远程播放控制"</string>
     <string name="noRemote_control">"没有远程播放"</string>
     <string name="quit">"完全退出"</string>
+    <string name="Warning">警告</string>
+    <string name="PermissionNotGrant">权限未设置，继续运行可能导致程序崩溃，是否继续运行?</string>
     <array name="str_body">
         <item>播放</item>
         <item>远程播放</item>

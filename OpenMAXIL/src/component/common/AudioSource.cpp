@@ -1,5 +1,5 @@
 /**
- *  Copyright (c) 2009-2013, Freescale Semiconductor Inc.,
+ *  Copyright (c) 2009-2015, Freescale Semiconductor Inc.,
  *  All Rights Reserved.
  *
  *  The following programs are the sole property of Freescale Semiconductor Inc.,
@@ -104,6 +104,7 @@ OMX_ERRORTYPE AudioSource::InitComponent()
 	nMaxDuration = MAX_VALUE_S64;
 	nAudioSource = 0;
 	bSendEOS = OMX_FALSE;
+	packageName = NULL;
 
     ret = InitSourceComponent();
     if(ret != OMX_ErrorNone)
@@ -188,6 +189,11 @@ OMX_ERRORTYPE AudioSource::SetParameter(
 				 nAudioSource = *((OMX_S32*)pStructure);
 			}
 			break;
+        case OMX_IndexParamPackageName:
+            {
+                packageName = (OMX_U16 *)pStructure;
+            }
+            break;
         default:
             ret = OMX_ErrorUnsupportedIndex;
             break;

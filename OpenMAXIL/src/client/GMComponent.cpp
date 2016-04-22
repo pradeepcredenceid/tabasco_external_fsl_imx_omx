@@ -108,8 +108,10 @@ OMX_ERRORTYPE GMComponent::Load(
         return OMX_ErrorInsufficientResources;
 
     pCompName = (OMX_U8*)FSL_MALLOC(NumComps * COMPONENT_NAME_LEN);
-    if(pCompName == NULL)
+    if(pCompName == NULL){
+        FSL_FREE(compNames);
         return OMX_ErrorInsufficientResources;
+    }
 
     for(i=0; i<NumComps; i++) {
         compNames[i]= pCompName + i * COMPONENT_NAME_LEN;
@@ -725,7 +727,7 @@ OMX_ERRORTYPE GMComponent::CbEventHandler(
                 break;
             }
             bError = OMX_TRUE;
-            fsl_osal_cond_broadcast(Cond);
+            fsl_osal_cond_broadcast(Cond);   // intentional fallthrough
         case OMX_EventPortFormatDetected:
             LOG_DEBUG("%s Get PortFormatDetected Event in port %d.\n", name, nData1);
         case OMX_EventBufferFlag:
@@ -876,7 +878,8 @@ OMX_ERRORTYPE GMComponent::CbFillBufferDone(
         return OMX_ErrorNone;
     }
 
-    PassOutBufferToPeer(nPortIndex);
+    if(OMX_ErrorNone != PassOutBufferToPeer(nPortIndex))
+        LOG_ERROR("PassOutBufferToPeer fail!");
 
     pPeerBuffer = (OMX_BUFFERHEADERTYPE*)pBuffer->pAppPrivate;
     if(pPeerBuffer == NULL) {

@@ -561,6 +561,7 @@ Parser::Parser()
     Lock = NULL;
     bLowLatency = OMX_FALSE;
     bDropAudio= OMX_FALSE;
+    playbackMode = NORMAL_MODE;
 }
 
 
@@ -937,6 +938,8 @@ OMX_ERRORTYPE Parser::SetParameter(
                 ports[AUDIO_OUTPUT_PORT]->SetPortDefinition(&sPortDef);
                 ActiveTrack(nActiveAudioNum);
                 bAudioActived = OMX_TRUE;
+                bAudioNewSegment = OMX_TRUE;
+                bAudioEOS = OMX_FALSE;
             }
             break;
 		case OMX_IndexParamIsGetMetadata:
@@ -1617,12 +1620,12 @@ OMX_ERRORTYPE Parser::ProcessDataBuffer()
     if(nPreCacheSize == 0)
         CalcPreCacheSize();
 
-    if (nClockScale > (OMX_S32)(MAX_RATE*Q16_SHIFT))
+    if (FAST_FORWARD_TRICK_MODE == playbackMode)
     {
         if(ports[VIDEO_OUTPUT_PORT]->BufferNum() > 0)
             ret = GetAndSendNextSyncVideoBuf();
     }
-    else if (nClockScale < (OMX_S32)(MIN_RATE*Q16_SHIFT))
+    else if (FAST_BACKWARD_TRICK_MODE == playbackMode)
     {
         if(ports[VIDEO_OUTPUT_PORT]->BufferNum() > 0)
             ret = GetAndSendPrevSyncVideoBuf();
@@ -1663,7 +1666,9 @@ OMX_ERRORTYPE Parser::ProcessClkBuffer()
 
     if(pTimeBuffer->eUpdateType == OMX_TIME_UpdateScaleChanged)
     {
+        OMX_TIME_CONFIG_PLAYBACKTYPE *pPlayback = (OMX_TIME_CONFIG_PLAYBACKTYPE *)pTimeBuffer->nClientPrivate;
         nClockScale = pTimeBuffer->xScale;
+        playbackMode = pPlayback->ePlayMode;
     }
     else if(pTimeBuffer->eUpdateType == OMX_TIME_UpdateVideoLate) {
         LOG_DEBUG("Parser skip to next I frame.\n");

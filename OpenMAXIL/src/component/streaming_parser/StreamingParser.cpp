@@ -650,6 +650,9 @@ OMX_ERRORTYPE StreamingParser::GetSpecificData(
 {
     OMX_S32 stream_id = GetStreamIdByPortIndex(nPortIndex);
 
+    if(stream_id < 0)
+        return OMX_ErrorUndefined;
+
     AVCodecContext *codec = ic->streams[stream_id]->codec;
     if(codec->extradata_size > 0) {
         LOG_DEBUG("stream %d send codec specific data %d\n", stream_id, codec->extradata_size);
@@ -994,6 +997,7 @@ AVPacket *StreamingParser::AssembledPacket()
     pkt->data = (uint8_t*)FSL_MALLOC(nSize);
     if(pkt->data == NULL) {
         LOG_ERROR("Failed to allocate data size: %d\n", nSize);
+        FSL_FREE(pkt);
         return NULL;
     }
     pkt->size = nSize;

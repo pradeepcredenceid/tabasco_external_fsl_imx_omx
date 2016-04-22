@@ -479,12 +479,13 @@ OMX_ERRORTYPE VideoFilter::ProcessDataBuffer()
             pHdr=InBufferHdrList.GetNode(0);
             if(pHdr==NULL){
                 LOG_ERROR("warning: get one null hdr from InBufferHdrList !\n");
+            }else{
+                if(pHdr->pBuffer!=ptr){
+                    LOG_ERROR("warning: the address doesn't match between ptr and pHdr->pBuffer !\n");
+                }
+                InBufferHdrList.Remove(pHdr);
+                ports[IN_PORT]->SendBuffer(pHdr);
             }
-            if(pHdr->pBuffer!=ptr){
-                LOG_ERROR("warning: the address doesn't match between ptr and pHdr->pBuffer !\n");
-            }
-            InBufferHdrList.Remove(pHdr);
-            ports[IN_PORT]->SendBuffer(pHdr);
         }
         else{
             //this path is only for eos
@@ -961,8 +962,10 @@ OMX_BUFFERHEADERTYPE * VideoFilter::GetFirstOutBufferHdrFromList()
         return NULL;
 
     pBufferHdr = OutBufferHdrList.GetNode(0);
-    if(pBufferHdr == NULL)
+    if(pBufferHdr == NULL){
         LOG_ERROR("VideoFilter outbuffer list has one NULL buffer.\n");
+        return NULL;
+    }
     LOG_DEBUG("Remove buffer %p from list.\n", pBufferHdr->pBuffer);
     OutBufferHdrList.Remove(pBufferHdr);
 

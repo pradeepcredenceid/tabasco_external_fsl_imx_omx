@@ -1,5 +1,5 @@
 /**
- *  Copyright (c) 2014-2015, Freescale Semiconductor Inc.,
+ *  Copyright (c) 2014-2016, Freescale Semiconductor Inc.,
  *  All Rights Reserved.
  *
  *  The following programs are the sole property of Freescale Semiconductor Inc.,
@@ -9,12 +9,12 @@
 
 #include "SoftHevcDec.h"
 
-
-//#undef LOG_LOG
-//#define LOG_LOG printf
-//#undef LOG_DEBUG
-//#define LOG_DEBUG printf
-
+#if 0
+#undef LOG_LOG
+#define LOG_LOG printf
+#undef LOG_DEBUG
+#define LOG_DEBUG printf
+#endif
 
 #define ALIGN_STRIDE(x)  (((x)+31)&(~31))
 #define ALIGN_CHROMA(x) (x)
@@ -22,15 +22,15 @@
 #define DROP_B_THRESHOLD    30000
 
 #define COMPONENT_NAME "OMX.Freescale.std.video_decoder.soft_hevc.sw-based"
-#define ivd_aligned_malloc(alignment, size) memalign(alignment, size)
-#define ivd_aligned_free(buf) free(buf)
+
+
 
 /** Function and structure definitions to keep code similar for each codec */
 #define ivdec_api_function              ihevcd_cxa_api_function
-#define ivdext_init_ip_t                ihevcd_cxa_init_ip_t
-#define ivdext_init_op_t                ihevcd_cxa_init_op_t
-#define ivdext_fill_mem_rec_ip_t        ihevcd_cxa_fill_mem_rec_ip_t
-#define ivdext_fill_mem_rec_op_t        ihevcd_cxa_fill_mem_rec_op_t
+#define ivdext_create_ip_t              ihevcd_cxa_create_ip_t
+#define ivdext_create_op_t              ihevcd_cxa_create_op_t
+#define ivdext_delete_ip_t              ihevcd_cxa_delete_ip_t
+#define ivdext_delete_op_t              ihevcd_cxa_delete_op_t
 #define ivdext_ctl_set_num_cores_ip_t   ihevcd_cxa_ctl_set_num_cores_ip_t
 #define ivdext_ctl_set_num_cores_op_t   ihevcd_cxa_ctl_set_num_cores_op_t
 
@@ -76,7 +76,7 @@ SoftHevcDec::SoftHevcDec()
     nInputSize = nInputOffset = 0;
     bInEos = OMX_FALSE;
     bOutEos = OMX_FALSE;
-
+    pInternalBuffer = NULL;
     nWidth = 320;
     nHeight = 240;
 
@@ -105,7 +105,14 @@ SoftHevcDec::SoftHevcDec()
     LOG_LOG("SoftHevcDec::SoftHevcDec");
 
 }
+static void * ivd_aligned_malloc(void *ctxt, WORD32 alignment, WORD32 size) {
+    return memalign(alignment, size);
+}
 
+static void ivd_aligned_free(void *ctxt, void *buf) {
+    free(buf);
+    return;
+}
 OMX_ERRORTYPE SoftHevcDec::GetConfig(OMX_INDEXTYPE nParamIndex, OMX_PTR pComponentParameterStructure)
 {
     if(nParamIndex == OMX_IndexConfigCommonOutputCrop) {
@@ -237,6 +244,8 @@ OMX_ERRORTYPE SoftHevcDec::resetDecoder() {
     /* Set number of cores/threads to be used by the codec */
     setNumCores();
 
+    AllocateFlushBuffer();
+
     return OMX_ErrorNone;
 }
 
@@ -244,154 +253,43 @@ OMX_ERRORTYPE SoftHevcDec::initDecoder()
 {
     IV_API_CALL_STATUS_T status;
 
-    UWORD32 u4_num_reorder_frames;
-    UWORD32 u4_num_ref_frames;
-    UWORD32 u4_share_disp_buf;
-    WORD32 i4_level;
-
-    /* Initialize number of ref and reorder modes (for HEVC) */
-    u4_num_reorder_frames = 16;
-    u4_num_ref_frames = 16;
-    u4_share_disp_buf = 0;
-
     OMX_U32 displayStride = nWidth;;
     OMX_U32 displayHeight = nHeight;
     OMX_U32 displaySizeY = displayStride * displayHeight;
 
-    if (displaySizeY > (1920 * 1088)) {
-        i4_level = 50;
-    } else if (displaySizeY > (1280 * 720)) {
-        i4_level = 40;
-    } else if (displaySizeY > (960 * 540)) {
-        i4_level = 31;
-    } else if (displaySizeY > (640 * 360)) {
-        i4_level = 30;
-    } else if (displaySizeY > (352 * 288)) {
-        i4_level = 21;
-    } else {
-        i4_level = 20;
-    }
+    mCodecCtx = NULL;
 
-    {
-        iv_num_mem_rec_ip_t s_num_mem_rec_ip;
-        iv_num_mem_rec_op_t s_num_mem_rec_op;
-
-        s_num_mem_rec_ip.u4_size = sizeof(s_num_mem_rec_ip);
-        s_num_mem_rec_op.u4_size = sizeof(s_num_mem_rec_op);
-        s_num_mem_rec_ip.e_cmd = IV_CMD_GET_NUM_MEM_REC;
-
-        LOG_DEBUG("initDecoder Get number of mem records");
-        status = ivdec_api_function(mCodecCtx, (void*)&s_num_mem_rec_ip,
-                (void*)&s_num_mem_rec_op);
-        if (IV_SUCCESS != status) {
-            LOG_ERROR("Error in getting mem records: 0x%x",
-                    s_num_mem_rec_op.u4_error_code);
-            return OMX_ErrorUndefined;
-        }
-
-        mNumMemRecords = s_num_mem_rec_op.u4_num_mem_rec;
-    }
-
-    mMemRecords = (iv_mem_rec_t*)ivd_aligned_malloc(
-            128, mNumMemRecords * sizeof(iv_mem_rec_t));
-    if (mMemRecords == NULL) {
-        LOG_ERROR("Allocation failure");
-        return OMX_ErrorUndefined;
-    }
-
-    memset(mMemRecords, 0, mNumMemRecords * sizeof(iv_mem_rec_t));
-
-    {
-        OMX_U32 i;
-        ivdext_fill_mem_rec_ip_t s_fill_mem_ip;
-        ivdext_fill_mem_rec_op_t s_fill_mem_op;
-        iv_mem_rec_t *ps_mem_rec;
-
-        s_fill_mem_ip.s_ivd_fill_mem_rec_ip_t.u4_size =
-            sizeof(ivdext_fill_mem_rec_ip_t);
-        s_fill_mem_ip.i4_level = i4_level;
-        s_fill_mem_ip.u4_num_reorder_frames = u4_num_reorder_frames;
-        s_fill_mem_ip.u4_num_ref_frames = u4_num_ref_frames;
-        s_fill_mem_ip.u4_share_disp_buf = u4_share_disp_buf;
-        s_fill_mem_ip.u4_num_extra_disp_buf = 0;
-        s_fill_mem_ip.e_output_format = IV_YUV_420P;
-
-        s_fill_mem_ip.s_ivd_fill_mem_rec_ip_t.e_cmd = IV_CMD_FILL_NUM_MEM_REC;
-        s_fill_mem_ip.s_ivd_fill_mem_rec_ip_t.pv_mem_rec_location = mMemRecords;
-        s_fill_mem_ip.s_ivd_fill_mem_rec_ip_t.u4_max_frm_wd = displayStride;
-        s_fill_mem_ip.s_ivd_fill_mem_rec_ip_t.u4_max_frm_ht = displayHeight;
-        s_fill_mem_op.s_ivd_fill_mem_rec_op_t.u4_size =
-            sizeof(ivdext_fill_mem_rec_op_t);
-
-        ps_mem_rec = mMemRecords;
-        for (i = 0; i < mNumMemRecords; i++)
-            ps_mem_rec[i].u4_size = sizeof(iv_mem_rec_t);
-
-        status = ivdec_api_function(mCodecCtx, (void *)&s_fill_mem_ip,
-                (void *)&s_fill_mem_op);
-
-        if (IV_SUCCESS != status) {
-            LOG_ERROR("Error in filling mem records: 0x%x",
-                    s_fill_mem_op.s_ivd_fill_mem_rec_op_t.u4_error_code);
-            return OMX_ErrorUndefined;
-        }
-        mNumMemRecords =
-            s_fill_mem_op.s_ivd_fill_mem_rec_op_t.u4_num_mem_rec_filled;
-
-        ps_mem_rec = mMemRecords;
-
-        for (i = 0; i < mNumMemRecords; i++) {
-            ps_mem_rec->pv_base = ivd_aligned_malloc(
-                    ps_mem_rec->u4_mem_alignment, ps_mem_rec->u4_mem_size);
-            if (ps_mem_rec->pv_base == NULL) {
-                LOG_ERROR("Allocation failure for memory record #%zu of size %u",
-                        i, ps_mem_rec->u4_mem_size);
-                status = IV_FAIL;
-                return OMX_ErrorUndefined;
-            }
-
-            ps_mem_rec++;
-        }
-    }
 
     /* Initialize the decoder */
     {
-        ivdext_init_ip_t s_init_ip;
-        ivdext_init_op_t s_init_op;
+        ivdext_create_ip_t s_create_ip;
+        ivdext_create_op_t s_create_op;
 
         void *dec_fxns = (void *)ivdec_api_function;
 
-        s_init_ip.s_ivd_init_ip_t.u4_size = sizeof(ivdext_init_ip_t);
-        s_init_ip.s_ivd_init_ip_t.e_cmd = (IVD_API_COMMAND_TYPE_T)IV_CMD_INIT;
-        s_init_ip.s_ivd_init_ip_t.pv_mem_rec_location = mMemRecords;
-        s_init_ip.s_ivd_init_ip_t.u4_frm_max_wd = displayStride;
-        s_init_ip.s_ivd_init_ip_t.u4_frm_max_ht = displayHeight;
+        s_create_ip.s_ivd_create_ip_t.u4_size = sizeof(ivdext_create_ip_t);
+        s_create_ip.s_ivd_create_ip_t.e_cmd = IVD_CMD_CREATE;
+        s_create_ip.s_ivd_create_ip_t.u4_share_disp_buf = 0;
+        s_create_op.s_ivd_create_op_t.u4_size = sizeof(ivdext_create_op_t);
+        s_create_ip.s_ivd_create_ip_t.e_output_format = IV_YUV_420P;
+        s_create_ip.s_ivd_create_ip_t.pf_aligned_alloc = ivd_aligned_malloc;
+        s_create_ip.s_ivd_create_ip_t.pf_aligned_free = ivd_aligned_free;
+        s_create_ip.s_ivd_create_ip_t.pv_mem_ctxt = NULL;
 
-        s_init_ip.i4_level = i4_level;
-        s_init_ip.u4_num_reorder_frames = u4_num_reorder_frames;
-        s_init_ip.u4_num_ref_frames = u4_num_ref_frames;
-        s_init_ip.u4_share_disp_buf = u4_share_disp_buf;
-        s_init_ip.u4_num_extra_disp_buf = 0;
+        status = ivdec_api_function(mCodecCtx, (void *)&s_create_ip, (void *)&s_create_op);
 
-        s_init_op.s_ivd_init_op_t.u4_size = sizeof(s_init_op);
-
-        s_init_ip.s_ivd_init_ip_t.u4_num_mem_rec = mNumMemRecords;
-        s_init_ip.s_ivd_init_ip_t.e_output_format = IV_YUV_420P;
-
-        mCodecCtx = (iv_obj_t*)mMemRecords[0].pv_base;
+        mCodecCtx = (iv_obj_t*)s_create_op.s_ivd_create_op_t.pv_handle;
         mCodecCtx->pv_fxns = dec_fxns;
         mCodecCtx->u4_size = sizeof(iv_obj_t);
 
-        LOG_DEBUG("Initializing decoder");
-        status = ivdec_api_function(mCodecCtx, (void *)&s_init_ip,
-                (void *)&s_init_op);
         if (status != IV_SUCCESS) {
-            LOG_ERROR("Error in init: 0x%x",
-                    s_init_op.s_ivd_init_op_t.u4_error_code);
+            LOG_ERROR("Error in create: 0x%x",
+                    s_create_op.s_ivd_create_op_t.u4_error_code);
+            deInitDecoder();
+            mCodecCtx = NULL;
             return OMX_ErrorUndefined;
         }
     }
-
     /* Reset the plugin state */
     bInEos = OMX_FALSE;
     bOutEos = OMX_FALSE;
@@ -408,9 +306,23 @@ OMX_ERRORTYPE SoftHevcDec::initDecoder()
     /* Get codec version */
     logVersion();
 
+    AllocateFlushBuffer();
+
+    return OMX_ErrorNone;
+}
+OMX_ERRORTYPE SoftHevcDec::AllocateFlushBuffer()
+{
+    OMX_U32 displayStride = nWidth;;
+    OMX_U32 displayHeight = nHeight;
+    OMX_U32 displaySizeY = displayStride * displayHeight;
+
     /* Allocate internal picture buffer */
     OMX_U32 bufferSize = displaySizeY * 3 / 2;
-    pInternalBuffer = ivd_aligned_malloc(128, bufferSize);
+
+    if(pInternalBuffer){
+        ivd_aligned_free(NULL,pInternalBuffer);
+    }
+    pInternalBuffer = ivd_aligned_malloc(NULL,128, bufferSize);
     if (NULL == pInternalBuffer) {
         LOG_ERROR("Could not allocate flushOutputBuffer of size %zu", bufferSize);
         return OMX_ErrorUndefined;
@@ -418,50 +330,36 @@ OMX_ERRORTYPE SoftHevcDec::initDecoder()
 
     return OMX_ErrorNone;
 }
-
 OMX_ERRORTYPE SoftHevcDec::deInitDecoder() {
-    OMX_U32 i;
 
-    if (mMemRecords) {
-        iv_mem_rec_t *ps_mem_rec;
+    IV_API_CALL_STATUS_T status;
 
-        ps_mem_rec = mMemRecords;
-        LOG_DEBUG("deInitDecoder Freeing codec memory");
-        for (i = 0; i < mNumMemRecords; i++) {
-            if(ps_mem_rec->pv_base) {
-                ivd_aligned_free(ps_mem_rec->pv_base);
-            }
-            ps_mem_rec++;
+    if (mCodecCtx) {
+        ivdext_delete_ip_t s_delete_ip;
+        ivdext_delete_op_t s_delete_op;
+
+        s_delete_ip.s_ivd_delete_ip_t.u4_size = sizeof(ivdext_delete_ip_t);
+        s_delete_ip.s_ivd_delete_ip_t.e_cmd = IVD_CMD_DELETE;
+
+        s_delete_op.s_ivd_delete_op_t.u4_size = sizeof(ivdext_delete_op_t);
+
+        status = ivdec_api_function(mCodecCtx, (void *)&s_delete_ip, (void *)&s_delete_op);
+        if (status != IV_SUCCESS) {
+            LOG_ERROR("Error in delete: 0x%x",
+                    s_delete_op.s_ivd_delete_op_t.u4_error_code);
+            return OMX_ErrorUndefined;
         }
-        ivd_aligned_free(mMemRecords);
-        mMemRecords = NULL;
     }
 
+    bChangingResolution = OMX_FALSE;
+
     if(pInternalBuffer) {
-        //FSL_FREE(pInternalBuffer);
-        ivd_aligned_free(pInternalBuffer);
+        ivd_aligned_free(NULL,pInternalBuffer);
         pInternalBuffer = NULL;
     }
 
     return OMX_ErrorNone;
 }
-
-OMX_ERRORTYPE SoftHevcDec::reInitDecoder() {
-    OMX_ERRORTYPE ret;
-    LOG_DEBUG("reInitDecoder");
-
-    deInitDecoder();
-
-    ret = initDecoder();
-    if (OMX_ErrorNone != ret) {
-        LOG_ERROR("Create failure");
-        deInitDecoder();
-        return OMX_ErrorUndefined;
-    }
-
-    return OMX_ErrorNone;
-}
-
 OMX_ERRORTYPE SoftHevcDec::setFlushMode() {
     IV_API_CALL_STATUS_T status;
     ivd_ctl_flush_ip_t s_video_flush_ip;
@@ -826,9 +724,10 @@ OMX_ERRORTYPE SoftHevcDec::ProcessQOS()
     if(nTimeStamp < 0 || pClock == NULL)
         return OMX_ErrorNone;
 
-    OMX_INIT_STRUCT(&sScale, OMX_TIME_CONFIG_SCALETYPE);
-    OMX_GetConfig(pClock, OMX_IndexConfigTimeScale, &sScale);
-    if(!IS_NORMAL_PLAY(sScale.xScale)){
+    OMX_TIME_CONFIG_PLAYBACKTYPE sPlayback;
+    OMX_INIT_STRUCT(&sPlayback, OMX_TIME_CONFIG_PLAYBACKTYPE);
+    OMX_GetConfig(pClock, OMX_IndexConfigPlaybackRate, &sPlayback);
+    if(sPlayback.ePlayMode != NORMAL_MODE){
         return OMX_ErrorNone;
     }
     OMX_INIT_STRUCT(&sCur, OMX_TIME_CONFIG_TIMESTAMPTYPE);
@@ -838,22 +737,24 @@ OMX_ERRORTYPE SoftHevcDec::ProcessQOS()
     ivd_ctl_set_config_op_t s_ctl_op;
     IV_API_CALL_STATUS_T status;
 
-    if(sCur.nTimestamp > (nTimeStamp - DROP_B_THRESHOLD))
-    {
-        s_ctl_ip.e_frm_skip_mode = IVD_SKIP_B;
+    if(sOutFmt.nFrameWidth >= 1920){
+        if(nTimeStamp > sCur.nTimestamp + 2*DROP_B_THRESHOLD)
+            s_ctl_ip.e_frm_skip_mode = IVD_SKIP_B;
+        else
+            s_ctl_ip.e_frm_skip_mode = IVD_SKIP_PB;
+    }else{
+        if(nTimeStamp > sCur.nTimestamp + DROP_B_THRESHOLD)
+            s_ctl_ip.e_frm_skip_mode = IVD_SKIP_NONE;
+        else
+            s_ctl_ip.e_frm_skip_mode = IVD_SKIP_B;
     }
-    else
-    {
-        s_ctl_ip.e_frm_skip_mode = IVD_SKIP_NONE;
-    }
-
+    LOG_LOG("ProcessQOS ts=%lld,curr=%lld,mode=%x",nTimeStamp,sCur.nTimestamp,s_ctl_ip.e_frm_skip_mode);
     if(skipMode != s_ctl_ip.e_frm_skip_mode){
-
-        LOG_DEBUG("change skip mode from 0x%x to 0x%x.",skipMode,s_ctl_ip.e_frm_skip_mode);
+        printf("change skip mode from 0x%x to 0x%x.",skipMode,s_ctl_ip.e_frm_skip_mode);
         skipMode = s_ctl_ip.e_frm_skip_mode;
 
         s_ctl_ip.u4_disp_wd = (UWORD32)nWidth;
-        s_ctl_ip.e_frm_skip_mode = IVD_SKIP_NONE;
+        s_ctl_ip.e_frm_skip_mode = skipMode;
 
         s_ctl_ip.e_frm_out_mode = IVD_DISPLAY_FRAME_OUT;
         s_ctl_ip.e_vid_dec_mode = IVD_DECODE_FRAME;
@@ -937,7 +838,6 @@ FilterBufRetCode SoftHevcDec::DecodeOneFrame()
 {
     FilterBufRetCode ret = FILTER_OK;
 
-    LOG_LOG("SoftHevcDec::DecodeOneFrame BEGIN bNeedCopyCodecData=%d",bNeedCopyCodecData);
 
     if(!bInit)
         return FILTER_DO_INIT;
@@ -954,6 +854,8 @@ FilterBufRetCode SoftHevcDec::DecodeOneFrame()
     if(pInBuffer == NULL && bInEos != OMX_TRUE){
         return FILTER_NO_INPUT_BUFFER;
     }
+
+    LOG_LOG("SoftHevcDec::DecodeOneFrame BEGIN bNeedCopyCodecData=%d",bNeedCopyCodecData);
 
     if(bInEos && !bInFlush){
         setFlushMode();
@@ -972,12 +874,11 @@ FilterBufRetCode SoftHevcDec::DecodeOneFrame()
             setDecodeArgs(&s_dec_ip, &s_dec_op,(OMX_PTR)((OMX_U8*)pInBuffer+nInputOffset),nInputSize,NULL);
         }
 
-        ProcessQOS();
 
+        ProcessQOS();
         status = ivdec_api_function(mCodecCtx, (void *)&s_dec_ip, (void *)&s_dec_op);
         gettimeofday (&tv1, NULL);
         LOG_DEBUG("*** Decode Time: %d\n", (tv1.tv_sec-tv.tv_sec)*1000+(tv1.tv_usec-tv.tv_usec)/1000);
-
         //end the decoding process when in flush mode
         if(status != IV_SUCCESS && bInFlush){
             if(pOutBuffer == NULL) {
@@ -998,13 +899,15 @@ FilterBufRetCode SoftHevcDec::DecodeOneFrame()
             return FILTER_ERROR;
         }
 
-        if(status != IV_SUCCESS && (IHEVCD_UNSUPPORTED_DIMENSIONS != s_dec_op.u4_error_code)){
-            LOG_ERROR("SoftHevcDec decode err =0x%x",s_dec_op.u4_error_code);
+        if(status != IV_SUCCESS && (IHEVCD_UNSUPPORTED_DIMENSIONS != s_dec_op.u4_error_code)
+            && (0 != s_dec_op.u4_error_code)){
+            LOG_ERROR("SoftHevcDec decode 2 err =0x%x",s_dec_op.u4_error_code);
             pInBuffer = NULL;
             nInputSize = 0;
-            ret = FILTER_INPUT_CONSUMED;
+            ret = (FilterBufRetCode)(FILTER_INPUT_CONSUMED | FILTER_SKIP_OUTPUT);
             return ret;
         }
+
 
         if ((0 < s_dec_op.u4_pic_wd) && (0 < s_dec_op.u4_pic_ht)) {
             DetectOutputFmt(s_dec_op.u4_pic_wd, s_dec_op.u4_pic_ht);
@@ -1024,20 +927,25 @@ FilterBufRetCode SoftHevcDec::DecodeOneFrame()
         pInBuffer = NULL;
         nInputSize = 0;
         ret = FILTER_INPUT_CONSUMED;
+        LOG_LOG("status=%d,s_dec_op.u4_error_code=%d",status,s_dec_op.u4_error_code);
+        //skip a frame when enable drop B or drop PB
+        if(skipMode != IVD_SKIP_NONE && !s_dec_op.u4_output_present){
+            ret = (FilterBufRetCode) (ret | FILTER_SKIP_OUTPUT);
+            LOG_LOG("SoftHevcDec::DecodeOneFrame skip FILTER_SKIP_OUTPUT\n");
+        }
 
         if (s_dec_op.u4_output_present) {
             ret = (FilterBufRetCode) (ret | FILTER_HAS_OUTPUT);
+            LOG_LOG("SoftHevcDec::DecodeOneFrame END FILTER_HAS_OUTPUT\n");
         } else {
             bInFlush = OMX_FALSE;
         }
 
     }
-    //LOG_LOG("SoftHevcDec::DecodeOneFrame END ret=%x",ret);
+    LOG_LOG("SoftHevcDec::DecodeOneFrame END ret=%x",ret);
 
     return ret;
-
 }
-
 
 OMX_ERRORTYPE SoftHevcDec::DetectOutputFmt(OMX_U32 width, OMX_U32 height)
 {
@@ -1062,13 +970,12 @@ OMX_ERRORTYPE SoftHevcDec::DetectOutputFmt(OMX_U32 width, OMX_U32 height)
             sOutCrop.nWidth,sOutCrop.nHeight,sOutFmt.nFrameWidth,sOutFmt.nFrameHeight);
 
         VideoFilter::OutputFmtChanged();
-        reInitDecoder();
+        resetDecoder();
         bChangingResolution =OMX_TRUE;
     }
 
     return OMX_ErrorNone;
 }
-
 
 OMX_ERRORTYPE SoftHevcDec::GetOutputBuffer(OMX_PTR *ppBuffer,OMX_S32* pOutSize)
 {

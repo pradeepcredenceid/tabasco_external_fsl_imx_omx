@@ -188,6 +188,14 @@ role_priority=3;
 $
 
 @
+component_name=OMX.Freescale.std.video_source.surface.sw-based;
+library_path=lib_omx_surface_source_arm11_elinux.so;
+component_entry_function=SurfaceSourceInit;
+component_role=video_source.surface;
+role_priority=3;
+$
+
+@
 component_name=OMX.Freescale.std.audio_render.fake.sw-based;
 library_path=lib_omx_audio_fake_render_arm11_elinux.so;
 component_entry_function=AudioFakeRenderInit;

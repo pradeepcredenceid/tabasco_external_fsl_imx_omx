@@ -1,5 +1,5 @@
 /**
- *  Copyright (c) 2009-2013, Freescale Semiconductor Inc.,
+ *  Copyright (c) 2009-2015, Freescale Semiconductor Inc.,
  *  All Rights Reserved.
  *
  *  The following programs are the sole property of Freescale Semiconductor Inc.,
@@ -77,10 +77,21 @@ OMX_ERRORTYPE AndroidAudioSource::OpenDevice()
                 PcmMode.nChannels > 1? AUDIO_CHANNEL_IN_STEREO: AUDIO_CHANNEL_IN_MONO,
                 4 * kMaxBufferSize / sizeof(OMX_S16), /* Enable ping-pong buffers */
                 flags));
-#elif (ANDROID_VERSION >= JELLY_BEAN_42)
+#elif (ANDROID_VERSION >= JELLY_BEAN_42) && (ANDROID_VERSION < MARSH_MALLOW_600)
     mRecord = FSL_NEW(AudioRecord, (
                 inputSource, PcmMode.nSamplingRate, AUDIO_FORMAT_PCM_16_BIT,
                 audio_channel_in_mask_from_count(PcmMode.nChannels),
+                4 * kMaxBufferSize / sizeof(OMX_S16)));
+#elif (ANDROID_VERSION >= MARSH_MALLOW_600)
+    if(packageName)
+        s16PackageName.setTo((const char16_t *)packageName);
+
+    mRecord = FSL_NEW(AudioRecord, (
+                inputSource,
+                PcmMode.nSamplingRate,
+                AUDIO_FORMAT_PCM_16_BIT,
+                audio_channel_in_mask_from_count(PcmMode.nChannels),
+                s16PackageName,
                 4 * kMaxBufferSize / sizeof(OMX_S16)));
 #endif
 

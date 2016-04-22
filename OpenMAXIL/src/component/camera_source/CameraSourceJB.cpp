@@ -19,6 +19,12 @@
 
 using android::IPCThreadState;
 
+#if 0
+#undef LOG_DEBUG
+#define LOG_DEBUG printf
+#undef LOG_WARNING
+#define LOG_WARNING printf
+#endif
 
 #define NO_ERROR 0
 
@@ -256,7 +262,7 @@ OMX_ERRORTYPE CameraSource::OpenDevice()
 #if (ANDROID_VERSION == JELLY_BEAN_42)
 		mCamera = Camera::connect(nCameraId);
 #elif (ANDROID_VERSION >= JELLY_BEAN_43)
-		stringClientName = FSL_NEW(android::String16, (clientName));
+		stringClientName = FSL_NEW(android::String16, ((const char16_t*)clientName));
 		if(stringClientName == NULL)
 			return OMX_ErrorInsufficientResources;
 		mCamera = Camera::connect(nCameraId, *stringClientName, clientUID);
@@ -288,7 +294,11 @@ OMX_ERRORTYPE CameraSource::OpenDevice()
 		pCameraProxy = (sp<ICameraRecordingProxy> *)cameraProxyPtr;
 		mCameraRecordingProxy = *pCameraProxy;
 		mDeathNotifier = new DeathNotifier();
+#if (ANDROID_VERSION < MARSH_MALLOW_600)
 		mCameraRecordingProxy->asBinder()->linkToDeath(mDeathNotifier);
+#else
+		android::IInterface::asBinder(mCameraRecordingProxy)->linkToDeath(mDeathNotifier);
+#endif
 		mCamera->lock();
 	}
 	IPCThreadState::self()->restoreCallingIdentity(token);
@@ -320,7 +330,11 @@ OMX_ERRORTYPE CameraSource::CloseDevice()
 	}
 
 	if (mCameraRecordingProxy != 0) {
+#if (ANDROID_VERSION < MARSH_MALLOW_600)
 		mCameraRecordingProxy->asBinder()->unlinkToDeath(mDeathNotifier);
+#else
+		android::IInterface::asBinder(mCameraRecordingProxy)->unlinkToDeath(mDeathNotifier);
+#endif
 		mCameraRecordingProxy.clear();
 	}
 	mFlags = 0;
@@ -632,8 +646,8 @@ OMX_ERRORTYPE CameraSource::GetOneFrameFromDevice()
     pOutBufferHdr->nOffset = 0;
     pOutBufferHdr->nFilledLen = 4;
     pOutBufferHdr->nTimeStamp = sReceivedBuffer.nTimeStamp;
-    LOG_DEBUG("pOutBufferHdr buffer allocate len: %d, pBuffer[0]: %x\n", \
-            pOutBufferHdr->nAllocLen, ((OMX_U32 *)(pOutBufferHdr->pBuffer))[0]);
+    LOG_DEBUG("pOutBufferHdr buffer allocate len: %d, pBuffer[0]: %x, ts %lld\n", \
+            pOutBufferHdr->nAllocLen, ((OMX_U32 *)(pOutBufferHdr->pBuffer))[0], pOutBufferHdr->nTimeStamp);
 
 	nCurTS = pOutBufferHdr->nTimeStamp;
 
@@ -657,7 +671,7 @@ void CameraSource::dataCallbackTimestamp(OMX_TICKS timestamp, OMX_S32 msgType, O
     RECEIVED_VIDEO_BUFFER sReceivedBuffer;
     OMX_U32 *pTempBuffer;
     OMX_U32 nMetadataBufferType;
-    private_handle_t* pGrallocHandle;
+    private_handle_t* pPrivateHandle;
     buffer_handle_t  tBufHandle;
     sp<IMemory> *pData;
 	pData = (sp<IMemory> *)dataPtr;
@@ -673,25 +687,50 @@ void CameraSource::dataCallbackTimestamp(OMX_TICKS timestamp, OMX_S32 msgType, O
 	}
 
     pTempBuffer = (OMX_U32 *) ((*pData)->pointer());
-    nMetadataBufferType = *pTempBuffer;
+    LOG_DEBUG("IMemory pointer is %x, size %d", pTempBuffer, (*pData)->size());
 
-    if(nMetadataBufferType == android::kMetadataBufferTypeCameraSource) {
-        LOG_DEBUG("MetadataBufferType is kMetadataBufferTypeCameraSource");
-    }
+    nMetadataBufferType = *pTempBuffer;
+    LOG_DEBUG("MetadataBufferType is %d (0-CameraSource,1-GrallocSource,2-ANWBuffer)", nMetadataBufferType);
 
     pTempBuffer++;
+
+#if (ANDROID_VERSION < MARSH_MALLOW_600)
     tBufHandle =  *((buffer_handle_t *)pTempBuffer);
-    pGrallocHandle = (private_handle_t*) tBufHandle;
-    LOG_DEBUG("Grallloc buffer recieved in metadata buffer 0x%x",pGrallocHandle );
+#else
+    if(nMetadataBufferType == android::kMetadataBufferTypeANWBuffer){
+        ANativeWindowBuffer *buffer = (ANativeWindowBuffer *)*pTempBuffer;
+        if(buffer == 0){
+            LOG_ERROR("No valid ANWBuffer from metadata!");
+            fsl_osal_mutex_unlock(lock);
+            return;
+        }
+        tBufHandle = buffer->handle;
+    }else{
+        tBufHandle =  *((buffer_handle_t *)pTempBuffer);
+    }
+#endif
 
-    LOG_DEBUG("%s Gralloc=0x%x, phys = 0x%x", __FUNCTION__, pGrallocHandle,
-            pGrallocHandle->phys);
+    pPrivateHandle = (private_handle_t*) tBufHandle;
+    if(pPrivateHandle == 0){
+        LOG_ERROR("No valid private handle from metadata!");
+        fsl_osal_mutex_unlock(lock);
+        return;
+    }
 
-    SearchAddBuffer((OMX_PTR)pGrallocHandle->phys, &nIndex);
+    LOG_DEBUG("%s Gralloc=0x%x, phys = 0x%x", __FUNCTION__, pPrivateHandle,
+            pPrivateHandle->phys);
+
+    SearchAddBuffer((OMX_PTR)pPrivateHandle->phys, &nIndex);
+    if(nIndex >= FRAME_BUFFER_QUEUE_SIZE)
+    {
+        LOG_ERROR("Can't find physical buffer in mIMemory!");
+        fsl_osal_mutex_unlock(lock);
+        return;
+    }
     LOG_DEBUG("Got frame from Camera index: %d\n", nIndex);
     mIMemory[nIndex] = *pData;
 
-    sReceivedBuffer.pPhysicAdd = (OMX_PTR)pGrallocHandle->phys;
+    sReceivedBuffer.pPhysicAdd = (OMX_PTR)pPrivateHandle->phys;
     sReceivedBuffer.nTimeStamp = timestamp;
 
     if (ReceivedBufferQueue->Add(&sReceivedBuffer) != QUEUE_SUCCESS) {

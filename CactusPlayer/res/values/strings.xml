@@ -18,7 +18,9 @@
     <string name="noname">"No name"</string>
     <string name="Remote_control">"Remote Control"</string>
     <string name="noRemote_control">"No Remote Control"</string>
+    <string name="Warning">Warning</string>
     <string name="quit">"quit"</string>
+    <string name="PermissionNotGrant">Fail to grant permission. App maybe crash. Still run it?</string>
     <array name="str_body">
         <item>PALY</item>
         <item>SECOND VIDEO PLAY</item>

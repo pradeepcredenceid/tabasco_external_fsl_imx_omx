@@ -271,7 +271,7 @@ OMX_ERRORTYPE UniaDecoder::CreateDecoderInterface()
 
         tUniACodecQueryInterface  myQueryInterface;
 
-        if(NULL == role || decoderLibName == NULL){
+        if(decoderLibName == NULL){
             ret = OMX_ErrorInsufficientResources;
             break;
         }
@@ -294,6 +294,7 @@ OMX_ERRORTYPE UniaDecoder::CreateDecoderInterface()
         IDecoder = (UniaDecInterface *)FSL_MALLOC(sizeof(UniaDecInterface));
         if(IDecoder == NULL){
             ret = OMX_ErrorUndefined;
+            break;
         }
         fsl_osal_memset(IDecoder,0 ,sizeof(UniaDecInterface));
 
@@ -453,7 +454,7 @@ OMX_ERRORTYPE UniaDecoder::MapOutputLayoutChannel(UniAcodecOutputPCMFormat * out
     OMX_U32 nChannels = outputValue->channels;
     OMX_U32 i = 0;
 
-    if(nChannels == 0 || nChannels > OMX_AUDIO_MAXCHANNELS){
+    if(nChannels == 0 || nChannels > UA_CHANNEL_MAX){
         return OMX_ErrorBadParameter;
     }
 

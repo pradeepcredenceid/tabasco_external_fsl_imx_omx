@@ -69,7 +69,7 @@ OMX_ERRORTYPE VideoRender::InitComponent()
     ClockScale = Q16_SHIFT;
     pSyncFrame = NULL;
     nFrameCnt = nDropCnt = nDeviceDropCnt = nContiniousDrop = 0;
-    bResetRefTime = OMX_FALSE;
+    playbackMode = NORMAL_MODE;
 
     InitVideoVisitors();
 
@@ -123,17 +123,6 @@ OMX_ERRORTYPE VideoRender::DoIdle2Loaded()
     return OMX_ErrorNone;
 }
 
-OMX_ERRORTYPE VideoRender::DoPause2Exec()
-{
-    /* For video only clip, if there are several seconds between GMPlayer load() and start(),
-     * VideoRender only setRefTime when it gets startTime, after GMPlayer start and VideoRender
-     * DoPause2Exec, the wallTimeBase is out of date and the current mediaTime is wrong.
-     */
-    bResetRefTime = OMX_TRUE;
-    return OMX_ErrorNone;
-}
-
-
 OMX_ERRORTYPE VideoRender::GetConfig(
         OMX_INDEXTYPE nParamIndex,
         OMX_PTR pStructure)
@@ -177,7 +166,7 @@ OMX_ERRORTYPE VideoRender::SetConfig(
 {
     OMX_ERRORTYPE ret = OMX_ErrorNone;
 
-    switch (nParamIndex) {
+    switch ((int)nParamIndex) {
         case OMX_IndexConfigCommonRotate:
             {
                 OMX_CONFIG_ROTATIONTYPE *pRotate;
@@ -298,7 +287,12 @@ OMX_ERRORTYPE VideoRender::ProcessClkBuffer()
             }
             break;
         case OMX_TIME_UpdateScaleChanged:
-            ClockScale = pUpdate->xScale;
+            {
+                OMX_TIME_CONFIG_PLAYBACKTYPE *pPlayback = NULL;
+                pPlayback = (OMX_TIME_CONFIG_PLAYBACKTYPE *)pUpdate->nClientPrivate;
+                ClockScale = pUpdate->xScale;
+                playbackMode = pPlayback->ePlayMode;
+            }
             break;
         case OMX_TIME_UpdateRequestFulfillment:
             {
@@ -366,14 +360,13 @@ OMX_ERRORTYPE VideoRender::SyncRequest(
     OMX_ERRORTYPE ret = OMX_ErrorNone;
 
     if(ClockState == OMX_TIME_ClockStateRunning) {
-        if(pBufferHdr->nFlags & OMX_BUFFERFLAG_STARTTIME || bResetRefTime ||
-                ClockScale < (OMX_S32)(MIN_RATE*Q16_SHIFT) || ClockScale > (OMX_S32)(MAX_RATE*Q16_SHIFT)) {
+        if(pBufferHdr->nFlags & OMX_BUFFERFLAG_STARTTIME || playbackMode != NORMAL_MODE) {
             OMX_TIME_CONFIG_TIMESTAMPTYPE sRefTime;
             OMX_INIT_STRUCT(&sRefTime, OMX_TIME_CONFIG_TIMESTAMPTYPE);
             sRefTime.nPortIndex = hClock.nTunneledPort;
             sRefTime.nTimestamp = pBufferHdr->nTimeStamp;
             OMX_SetConfig(hClock.hTunneledComp, OMX_IndexConfigTimeCurrentVideoReference, &sRefTime);
-            bResetRefTime = OMX_FALSE;
+
         }
 
         OMX_TIME_CONFIG_MEDIATIMEREQUESTTYPE sRequest;
@@ -503,6 +496,7 @@ OMX_ERRORTYPE VideoRender::InitVideoVisitors()
     //phase out libfslxec
     return OMX_ErrorNotImplemented;
 
+#if 0
     hVisitorLib = LibMgr.load(lib_name);
     if(hVisitorLib == NULL) {
         LOG_WARNING("Unable to load %s\n", lib_name);
@@ -533,6 +527,7 @@ OMX_ERRORTYPE VideoRender::InitVideoVisitors()
     }
 
     return OMX_ErrorNone;
+#endif
 }
 
 OMX_ERRORTYPE VideoRender::DeInitVideoVisitors()

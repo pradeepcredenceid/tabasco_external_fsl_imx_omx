@@ -1,5 +1,5 @@
 /**
- *  Copyright (c) 2010-2015, Freescale Semiconductor Inc.,
+ *  Copyright (c) 2010-2016, Freescale Semiconductor Inc.,
  *  All Rights Reserved.
  *
  *  The following programs are the sole property of Freescale Semiconductor Inc.,
@@ -173,7 +173,7 @@ static void time_report()
 #define TIMER_START
 #define TIMER_STOP
 #define TIMER_REPORT
-#define VPU_COMP_POST_LOG
+#define VPU_COMP_POST_LOG(...)
 #endif
 
 //#define USE_PROCESS_SEM		//for debug : use semaphore between process
@@ -1371,9 +1371,10 @@ OMX_ERRORTYPE ConfigVpu(VpuDecHandle InHandle,OMX_TICKS nTimeStamp,OMX_PTR pCloc
 
 	if(pClock!=NULL)
 	{
-            OMX_INIT_STRUCT(&sScale, OMX_TIME_CONFIG_SCALETYPE);
-            OMX_GetConfig(pClock, OMX_IndexConfigTimeScale, &sScale);
-            if(!IS_NORMAL_PLAY(sScale.xScale)){
+            OMX_TIME_CONFIG_PLAYBACKTYPE sPlayback;
+            OMX_INIT_STRUCT(&sPlayback, OMX_TIME_CONFIG_PLAYBACKTYPE);
+            OMX_GetConfig(pClock, OMX_IndexConfigPlaybackRate, &sPlayback);
+            if(sPlayback.ePlayMode != NORMAL_MODE){
                 VPU_COMP_LOG("*** not normal playback for drop B, return");
                 return OMX_ErrorNone;
             }
@@ -2359,8 +2360,8 @@ OMX_ERRORTYPE VpuDecoder::SetParameter(
 	else if(nParamIndex==OMX_IndexParamVideoRegisterFrameExt){
 		OMX_VIDEO_REG_FRM_EXT_INFO* pExtInfo=(OMX_VIDEO_REG_FRM_EXT_INFO*)pComponentParameterStructure;
 		if(pExtInfo->nPortIndex==OUT_PORT){
-			nFrameWidthStride=pExtInfo->nWidthStride;
-			nFrameHeightStride=pExtInfo->nHeightStride;
+			nFrameWidthStride=Align(pExtInfo->nWidthStride, FRAME_ALIGN);
+			nFrameHeightStride=Align(pExtInfo->nHeightStride, FRAME_ALIGN);
 			nFrameMaxCnt=(pExtInfo->nMaxBufferCnt<=VPU_DEC_MAX_NUM_MEM)?pExtInfo->nMaxBufferCnt:VPU_DEC_MAX_NUM_MEM;
 		VPU_COMP_LOG("%s: set OMX_IndexParamVideoFrameStride: width stride : %d, height stride: %d, max count: %d \r\n",__FUNCTION__,nFrameWidthStride,nFrameHeightStride,nFrameMaxCnt);
 		}
@@ -2500,9 +2501,13 @@ OMX_ERRORTYPE VpuDecoder::InitFilterComponent()
 
 	// init semaphore
 #ifdef USE_PROCESS_SEM
-	VPU_COMP_SEM_INIT_PROCESS(&psemaphore);
+	if(E_FSL_OSAL_SUCCESS!=VPU_COMP_SEM_INIT_PROCESS(&psemaphore)){
+		VPU_COMP_ERR_LOG("%s: init semaphore failed ! \r\n",__FUNCTION__);
+	}
 #else
-	VPU_COMP_SEM_INIT(&psemaphore);
+	if(E_FSL_OSAL_SUCCESS!=VPU_COMP_SEM_INIT(&psemaphore)){
+		VPU_COMP_ERR_LOG("%s: init semaphore failed ! \r\n",__FUNCTION__);
+	}
 #endif
 
 	//update state

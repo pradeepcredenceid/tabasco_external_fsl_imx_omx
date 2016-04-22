@@ -72,7 +72,11 @@ class AudioRender : public ComponentBase {
         virtual OMX_ERRORTYPE ResetDevice() = 0;
         virtual OMX_ERRORTYPE DrainDevice() = 0;
 		virtual OMX_ERRORTYPE DeviceDelay(OMX_U32 *nDelayLen) = 0;
-        virtual OMX_ERRORTYPE WriteDevice(OMX_U8 *pBuffer, OMX_U32 nActuralLen) = 0;
+        virtual OMX_ERRORTYPE WriteDevice(OMX_U8 *pBuffer, OMX_U32 nActuralLen, OMX_U32 *nConsumedLen = NULL) = 0;
+        virtual OMX_ERRORTYPE ConvertData(OMX_U8* pOut, OMX_U32 *nOutSize, OMX_U8 *pIn, OMX_U32 nInSize);
+        virtual OMX_BOOL IsNeedConvertData();
+        virtual OMX_U32 DataLenOut2In(OMX_U32 nLength);
+        virtual OMX_ERRORTYPE SetPlaybackRate(OMX_PTR rate);
 
 		virtual OMX_ERRORTYPE AudioRenderDoExec2Pause();
 		virtual OMX_ERRORTYPE AudioRenderDoPause2Exec();
@@ -99,6 +103,12 @@ class AudioRender : public ComponentBase {
 		OMX_S64 nTotalConsumeredLen;
 		OMX_S64 nTotalReceivedLen;
 		OMX_TICKS audioIntervalThreshold;
+        OMX_PLAYBACK_MODE playbackMode;
+        OMX_BOOL bNeedConvertData;
+        OMX_U8* pBufferBak;
+        OMX_U32 nBufferBakSize;
+        OMX_U32 nDataSize;
+        OMX_U32 nDataOffset;
 };
 
 #endif

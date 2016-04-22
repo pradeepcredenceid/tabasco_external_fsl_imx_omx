@@ -6,9 +6,9 @@
  *  and contain its proprietary and confidential information.
  *
  */
-
 #include "FslMuxer.h"
 #include "fsl_media_types.h"
+
 
 #define NUM_PORTS 2
 #define AUDIO_PORT 0
@@ -150,7 +150,37 @@ OMX_ERRORTYPE FslMuxer::AddLocationInfo(
 
     return OMX_ErrorNone;
 }
+OMX_ERRORTYPE FslMuxer::AddCaptureFpsInfo(OMX_S32 fps)
+{
+    OMX_U32 metaDataSize = sizeof(float);
+    //OMX_U32 userDataFormat = DATA_FORMAT_FLOAT32;
+    float metaData = (float)fps/1000;
+    LOG_DEBUG("AddCaptureFpsInfo: %d,%f\n", fps,metaData);
+    if(MUXER_SUCCESS != hItf.SetMovieMetadata(hMuxer, METADATA_CAPTUREFPS, \
+            DATA_FORMAT_FLOAT32,  &metaData, metaDataSize)) {
+        LOG_ERROR("Can't set location information.\n");
+        return OMX_ErrorUndefined;
+    }
 
+    return OMX_ErrorNone;
+}
+
+OMX_ERRORTYPE FslMuxer::AddAndroidVersion(OMX_U8* string,OMX_U32 len)
+{
+    OMX_U32 size = 0;
+
+    if (string == NULL)
+        return OMX_ErrorBadParameter;
+
+    if(MUXER_SUCCESS != hItf.SetMovieMetadata(hMuxer, METADATA_ANDROIDVERSION, \
+            DATA_FORMAT_UTF8,  string, len)) {
+        LOG_ERROR("Can't write android version\n");
+        return OMX_ErrorUndefined;
+    }
+    LOG_DEBUG("AddAndroidVersion len=%d,str=%s",len,string);
+
+    return OMX_ErrorNone;
+}
 OMX_ERRORTYPE FslMuxer::AddMp3Track(
         OMX_U32 trackId,
         OMX_AUDIO_PARAM_MP3TYPE *pParameter)
@@ -197,8 +227,11 @@ OMX_ERRORTYPE FslMuxer::AddAacTrack(
 
 OMX_ERRORTYPE FslMuxer::AddAmrTrack(OMX_U32 trackId, OMX_AUDIO_PARAM_AMRTYPE *pParameter)
 {
-    AmrAudioTypes subType;
+    AmrAudioTypes subType = AUDIO_AMR_NB;
     OMX_U32 nSampleRate;
+
+    if(pParameter == NULL)
+        return OMX_ErrorBadParameter;
 
     if(pParameter->eAMRBandMode >= OMX_AUDIO_AMRBandModeNB0 && pParameter->eAMRBandMode <= OMX_AUDIO_AMRBandModeNB7) {
         subType = AUDIO_AMR_NB;
@@ -209,20 +242,18 @@ OMX_ERRORTYPE FslMuxer::AddAmrTrack(OMX_U32 trackId, OMX_AUDIO_PARAM_AMRTYPE *pP
 		nSampleRate = 16000;
 	}
 
-	printf("Amr subType: %d bit rate: %d channel: %d\n", subType, pParameter->nBitRate, pParameter->nChannels);
+	LOG_INFO("Amr subType: %d bit rate: %d channel: %d\n", subType, pParameter->nBitRate, pParameter->nChannels);
     if(MUXER_SUCCESS != hItf.AddTrack(hMuxer, MEDIA_AUDIO, AUDIO_AMR, subType, &trackId))
         return OMX_ErrorUndefined;
 
-    if(pParameter != NULL) {
-        hItf.SetTrackProperty(hMuxer, trackId, PROPERTY_AVERAGE_BIT_RATE, DATA_FORMAT_UINT32,
-                &pParameter->nBitRate, sizeof(OMX_U32));
+    hItf.SetTrackProperty(hMuxer, trackId, PROPERTY_AVERAGE_BIT_RATE, DATA_FORMAT_UINT32,
+            &pParameter->nBitRate, sizeof(OMX_U32));
 
-        hItf.SetTrackProperty(hMuxer, trackId, PROPERTY_CHANNEL_NUMBER, DATA_FORMAT_UINT32,
-                &pParameter->nChannels, sizeof(OMX_U32));
+    hItf.SetTrackProperty(hMuxer, trackId, PROPERTY_CHANNEL_NUMBER, DATA_FORMAT_UINT32,
+            &pParameter->nChannels, sizeof(OMX_U32));
 
-        hItf.SetTrackProperty(hMuxer, trackId, PROPERTY_SAMPLE_RATE, DATA_FORMAT_UINT32,
-                &nSampleRate, sizeof(OMX_U32));
-    }
+    hItf.SetTrackProperty(hMuxer, trackId, PROPERTY_SAMPLE_RATE, DATA_FORMAT_UINT32,
+            &nSampleRate, sizeof(OMX_U32));
 
     return OMX_ErrorNone;
 }
@@ -371,7 +402,8 @@ OMX_U32 FslMuxer::GetTrailerSize()
 
 OMX_ERRORTYPE FslMuxer::AddSampleDone()
 {
-	LOG_DEBUG("WriteTrailer.\n");
+
+    LOG_DEBUG("WriteTrailer.\n");
     if(MUXER_SUCCESS != hItf.WriteTrailer(hMuxer))
         LOG_ERROR("Write muxer trailer failed.\n");
 

@@ -35,6 +35,7 @@ class Clock : public ComponentBase {
         fsl_osal_mutex lock;
         fsl_osal_ptr Cond;
         OMX_BOOL bPaused;
+        OMX_TIME_CONFIG_PLAYBACKTYPE sPlaybackType;
         OMX_ERRORTYPE InitComponent();
         OMX_ERRORTYPE DeInitComponent();
         OMX_ERRORTYPE GetConfig(OMX_INDEXTYPE nParamIndex, OMX_PTR pStructure);
@@ -52,6 +53,7 @@ class Clock : public ComponentBase {
         OMX_ERRORTYPE SetVideoLate(OMX_TIME_CONFIG_TIMEVIDEOLATE *pVideoLate);
         OMX_ERRORTYPE MediaTimeUpdate(OMX_TIME_MEDIATIMETYPE *pUpdate, OMX_U32 nPortIndex);
         OMX_ERRORTYPE CurMediaAndWallTime(OMX_TICKS *pMediaTime, fsl_osal_timeval *pWallTime);
+        OMX_ERRORTYPE SetPlaybackRate(OMX_TIME_CONFIG_PLAYBACKTYPE *pRate);
 };
 
 #endif

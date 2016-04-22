@@ -47,7 +47,7 @@ OMX_ERRORTYPE GMSubtitlePlayer::Init()
         LOG_ERROR("Failed to create subtitle thread.\n");
         return OMX_ErrorInsufficientResources;
     }
-    memset(&delayedSample, 0, sizeof(delayedSample));
+    fsl_osal_memset(&delayedSample, 0, sizeof(delayedSample));
     delayedSample.nFilledLen = -1;
 
     return OMX_ErrorNone;
@@ -114,7 +114,7 @@ OMX_ERRORTYPE GMSubtitlePlayer::Reset()
     mSample.pBuffer = NULL;
     RenderOneSample();
 
-    memset(&delayedSample, 0, sizeof(delayedSample));
+    fsl_osal_memset(&delayedSample, 0, sizeof(delayedSample));
     delayedSample.nFilledLen = -1;
     return OMX_ErrorNone;
 }

@@ -57,6 +57,7 @@ OMX_SFD_PIPE_API CPresult SharedFdPipe_Open(CPhandle* hContent, CPstring szURI, 
     hPipe->nPos = lseek64(hPipe->fd, offset, SEEK_SET);
     if(hPipe->nPos < 0) {
         LOG_ERROR("seek to pos: %lld failed, errno: %s\n", offset, strerror(errno));
+        FSL_DELETE(hPipe);
         return KD_EIO;
     }
 	if(eAccess==CP_AccessReadWrite)
@@ -166,7 +167,9 @@ OMX_SFD_PIPE_API CPresult SharedFdPipe_SetPosition(
 			OMX_S32 nActualWritten;
 			OMX_S32 nNeedWriteLen = nPos - (hPipe->nBeginPoint + hPipe->nLen);
 
-            lseek64(hPipe->fd, hPipe->nBeginPoint + hPipe->nLen, SEEK_SET);
+            CPint64 pos = lseek64(hPipe->fd, hPipe->nBeginPoint + hPipe->nLen, SEEK_SET);
+            if(pos < 0)
+                LOG_ERROR("Seek to end of file failed!");
             if (nNeedWriteLen > hPipe->nWriteBufferLen) {
                 if (nNeedWriteLen <= hPipe->nWriteBufferLen + ONE_MEGA_BYTES) {
                     hPipe->nWriteBufferLen += ONE_MEGA_BYTES;

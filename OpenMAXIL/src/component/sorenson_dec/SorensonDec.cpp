@@ -702,8 +702,7 @@ FilterBufRetCode SorensonDec::DecodeOneFrame()
         }
     }
 
-
-    ret = FILTER_INPUT_CONSUMED;
+    ret = (FilterBufRetCode) (ret | FILTER_INPUT_CONSUMED);
     pInBuffer = NULL;
 
     if(bInEos == OMX_TRUE) {

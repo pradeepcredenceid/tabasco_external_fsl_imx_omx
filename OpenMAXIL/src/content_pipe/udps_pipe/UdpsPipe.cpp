@@ -76,7 +76,7 @@ OMX_STREAMING_PIPE_API CPresult UdpsPipe_Close(CPhandle hContent)
 
     FSL_DELETE(hPipe);
 
-    LOG_INFO("UdpsPipe_Close hContent %p ok\n", hContent);
+    LOG_INFO("UdpsPipe_Close ok\n");
 
     return STREAMING_PIPE_SUCESS;
 }

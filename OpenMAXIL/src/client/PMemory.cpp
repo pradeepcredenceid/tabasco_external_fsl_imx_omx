@@ -46,8 +46,8 @@ static OMX_ERRORTYPE InitPMemAllocator(PMCONTEXT *Context, OMX_U32 nBufferSize, 
         return OMX_ErrorHardware;
     }
 
-    ioctl(Context->fd, PMEM_GET_TOTAL_SIZE, &region);
-    LOG_DEBUG("Get pmem total size %d",region.len);
+    //ioctl(Context->fd, PMEM_GET_TOTAL_SIZE, &region);
+    //LOG_DEBUG("Get pmem total size %d",region.len);
 
     Context->nBufferSize = nBufferSize;
     Context->nBufferNum = nBufferNum;

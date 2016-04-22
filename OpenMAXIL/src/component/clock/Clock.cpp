@@ -72,6 +72,11 @@ OMX_ERRORTYPE Clock::InitComponent()
     RefClock = OMX_TIME_RefClockNone;
     SegmentStartTime = -1L;
     bPaused = OMX_FALSE;
+    OMX_INIT_STRUCT(&sPlaybackType, OMX_TIME_CONFIG_PLAYBACKTYPE);
+    sPlaybackType.ePlayMode = NORMAL_MODE;
+    sPlaybackType.pPrivateData = NULL;
+    sPlaybackType.nPrivateDataSize = 0;
+    sPlaybackType.xScale = Scale;
 
     return ret;
 }
@@ -88,6 +93,9 @@ OMX_ERRORTYPE Clock::DeInitComponent()
         Cond = NULL;
     }
 
+    if(sPlaybackType.pPrivateData != NULL)
+        FSL_FREE(sPlaybackType.pPrivateData);
+
     return OMX_ErrorNone;
 }
 
@@ -97,7 +105,7 @@ OMX_ERRORTYPE Clock::GetConfig(
 {
     OMX_ERRORTYPE ret = OMX_ErrorNone;
 
-    switch (nParamIndex) {
+    switch ((int)nParamIndex) {
         case OMX_IndexConfigTimeScale:
             {
                 OMX_TIME_CONFIG_SCALETYPE *pScale = NULL;
@@ -158,6 +166,16 @@ OMX_ERRORTYPE Clock::GetConfig(
                 pCurWallTime->nTimestamp = WALLTIME2TICKS(tv);
             }
             break;
+        case OMX_IndexConfigPlaybackRate:
+            {
+                OMX_TIME_CONFIG_PLAYBACKTYPE *pPlayback = NULL;
+                pPlayback = (OMX_TIME_CONFIG_PLAYBACKTYPE *)pStructure;
+                OMX_CHECK_STRUCT(pPlayback, OMX_TIME_CONFIG_PLAYBACKTYPE, ret);
+                if(ret != OMX_ErrorNone)
+                    return ret;
+                fsl_osal_memcpy(pPlayback, &sPlaybackType, sizeof(OMX_TIME_CONFIG_PLAYBACKTYPE));
+            }
+            break;
         default :
             ret = OMX_ErrorUnsupportedIndex;
             return ret;
@@ -197,12 +215,45 @@ OMX_ERRORTYPE Clock::SetConfig(
             break;
         case OMX_IndexConfigTimeVideoLate:
             ret = SetVideoLate((OMX_TIME_CONFIG_TIMEVIDEOLATE*)pStructure);
+            break;
+        case OMX_IndexConfigPlaybackRate:
+            ret = SetPlaybackRate((OMX_TIME_CONFIG_PLAYBACKTYPE*)pStructure);
+            break;
         default :
             ret = OMX_ErrorUnsupportedIndex;
             break;
     }
 
     return ret;
+}
+
+OMX_ERRORTYPE Clock::SetPlaybackRate(
+    OMX_TIME_CONFIG_PLAYBACKTYPE *pRate)
+{
+    OMX_ERRORTYPE ret = OMX_ErrorNone;
+    OMX_TIME_CONFIG_SCALETYPE sScale;
+
+    OMX_CHECK_STRUCT(pRate, OMX_TIME_CONFIG_PLAYBACKTYPE, ret);
+    if(ret != OMX_ErrorNone)
+        return ret;
+
+    sPlaybackType.ePlayMode = pRate->ePlayMode;
+    sPlaybackType.xScale = pRate->xScale;
+
+    if(pRate->pPrivateData) {
+        if(NULL == sPlaybackType.pPrivateData) {
+            sPlaybackType.pPrivateData = FSL_MALLOC(pRate->nPrivateDataSize);
+            if(NULL == sPlaybackType.pPrivateData)
+                return OMX_ErrorInsufficientResources;
+        }
+        fsl_osal_memcpy(sPlaybackType.pPrivateData, pRate->pPrivateData, pRate->nPrivateDataSize);
+        sPlaybackType.nPrivateDataSize = pRate->nPrivateDataSize;
+    }
+
+    OMX_INIT_STRUCT(&sScale, OMX_TIME_CONFIG_SCALETYPE);
+    sScale.xScale = pRate->xScale;
+
+    return SetTimeScale(&sScale);
 }
 
 OMX_ERRORTYPE Clock::SetTimeScale(
@@ -231,6 +282,7 @@ OMX_ERRORTYPE Clock::SetTimeScale(
     OMX_INIT_STRUCT(&UpdateType, OMX_TIME_MEDIATIMETYPE);
     UpdateType.eUpdateType = OMX_TIME_UpdateScaleChanged;
     UpdateType.xScale = Scale;
+    UpdateType.nClientPrivate = (OMX_U32)&sPlaybackType;
 
     fsl_osal_mutex_unlock(lock);
 
@@ -381,13 +433,13 @@ OMX_ERRORTYPE Clock::MediaTimeRequest(
     UpdateType.eUpdateType = OMX_TIME_UpdateRequestFulfillment;
     UpdateType.nClientPrivate = (OMX_U32) pRequst->pClientPrivate;
 
-    if(Scale >= MIN_TRICK_FORWARD_RATE*Q16_SHIFT || Scale < -Q16_SHIFT) {
+    if(sPlaybackType.ePlayMode != NORMAL_MODE) {
 
         WaitTicks = (OMX_S64)OMX_TICKS_PER_SECOND*Q16_SHIFT/Scale;
         WaitTicks = Scale > 0 ? WaitTicks : -WaitTicks;
 
         CurMediaAndWallTime(NULL, &CurWallTime);
-        LOG_DEBUG("Scale %d, Cur Media Time: %lld, Wait Time: %lld\n", Scale,CurMediaTime, WaitTicks);
+        LOG_DEBUG("Scale %d, Cur Wall Time: %lld, Wait Time: %lld\n", Scale,CurWallTime, WaitTicks);
         fsl_osal_cond_timedwait(Cond, WaitTicks);
         /* Not drop any frames in trick mode */
         UpdateType.nMediaTimestamp = pRequst->nMediaTimestamp;
@@ -404,6 +456,10 @@ OMX_ERRORTYPE Clock::MediaTimeRequest(
         }
         if(WaitTicks > 0) {
             fsl_osal_cond_timedwait(Cond, WaitTicks);
+            CurMediaAndWallTime(&CurMediaTime, &CurWallTime);
+            WaitTicks = (TargetMediaTime - pRequst->nOffset - CurMediaTime)*Q16_SHIFT/Scale;
+            if(WaitTicks > 20000)
+                return OMX_ErrorNotReady;
             CurMediaTime = pRequst->nMediaTimestamp;
         }
         UpdateType.nMediaTimestamp = CurMediaTime;
@@ -517,7 +573,7 @@ OMX_ERRORTYPE Clock::CurMediaAndWallTime(
     LOG_DEBUG("CurWallTime: [%ds : %dus]\n", tv.sec, tv.usec);
 
     if(pMediaTime != NULL) {
-        if(bPaused != OMX_TRUE && IS_NORMAL_PLAY(Scale))
+        if(bPaused != OMX_TRUE && NORMAL_MODE == sPlaybackType.ePlayMode)
         {
             OMX_S64 diff = (OMX_S64)WALLTIMESUB(tv, WallTimeBase);
             *pMediaTime = MediaTimeBase + diff*Scale/Q16_SHIFT;

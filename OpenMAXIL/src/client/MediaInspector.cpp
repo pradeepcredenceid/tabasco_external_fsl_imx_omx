@@ -95,8 +95,11 @@ OMX_ERRORTYPE DetectAudioTypeByFrame(
     OMX_BOOL seekable = OMX_TRUE;
     CPresult nContentPipeResult = 0;
 
+    if(fpCheckFrame == NULL)
+        return OMX_ErrorUndefined;
+
     buffer = (CPbyte*)FSL_MALLOC(buffer_size * sizeof(CPbyte));
-    if(buffer == NULL || fpCheckFrame == NULL) {
+    if(buffer == NULL) {
         return OMX_ErrorInsufficientResources;
     }
     fsl_osal_memset(buffer, 0, buffer_size*sizeof(CPbyte));
@@ -241,8 +244,10 @@ OMX_ERRORTYPE TryLoadComponent(
     pComponent->StateTransDownWard(OMX_StateLoaded);
 
 err:
-    if(pComponent->hComponent) {
-        pComponent->UnLoad();
+    if(pComponent) {
+        if(pComponent->hComponent) {
+            pComponent->UnLoad();
+        }
         FSL_DELETE(pComponent);
     }
 

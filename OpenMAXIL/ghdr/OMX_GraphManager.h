@@ -186,6 +186,53 @@ typedef enum {
     OMX_VIDEO_SURFACE_TEXTURE,
 }OMX_VIDEO_SURFACE_TYPE;
 
+
+
+
+typedef enum
+{
+    GM_AV_SOURCE_DEFAULT = 0,
+    GM_AV_SOURCE_SYSTEM_CLOCK,
+    GM_AV_SOURCE_AUDIO,
+    GM_AV_SOURCE_VSYNC,
+}GM_AV_SOURCE;
+
+typedef enum
+{
+    GM_AV_AUDIO_ADJUST_MODE_DEFAULT = 0,
+    GM_AV_AUDIO_ADJUST_MODE_STRETCH,
+    GM_AV_AUDIO_ADJUST_MODE_RESAMPLE,
+}GM_AV_AUDIO_ADJUST_MODE;
+
+typedef struct{
+    GM_AV_SOURCE source;
+    GM_AV_AUDIO_ADJUST_MODE audioAdjustMode;
+    OMX_U32 tolerance;
+}GM_AV_SYNC_SETTING;
+
+typedef struct {
+    OMX_U32 nTrackNum;
+    OMX_VIDEO_CODINGTYPE eCodingType;
+    OMX_U8 lanuage[16];
+    OMX_U8 mime[20];
+}GM_VIDEO_TRACK_INFO;
+
+typedef struct {
+    OMX_U32 nTrackNum;
+    OMX_AUDIO_CODINGTYPE eCodingType;
+    OMX_U8 lanuage[16];
+    OMX_U8 mime[20];
+}GM_AUDIO_TRACK_INFO;
+
+typedef struct {
+    OMX_U32 nTrackNum;
+   OMX_U8 type[8];
+   OMX_U8 lanuage[8];
+   OMX_BOOL bInBand;
+   OMX_U8 mime[24];
+}GM_SUBTITLE_TRACK_INFO;
+
+
 struct OMX_GraphManager
 {
 	OMX_BOOL (*preload)(OMX_GraphManager *h, const char *filename, int length);
@@ -214,8 +261,9 @@ struct OMX_GraphManager
 
 	OMX_BOOL (*dumpPipeLine)(OMX_GraphManager* h);
 	OMX_BOOL (*deleteIt)(OMX_GraphManager* h);
-    OMX_BOOL (*setPlaySpeed)(OMX_GraphManager* h, int speed);
-    OMX_BOOL (*getPlaySpeed)(OMX_GraphManager* h, int *speed);
+    OMX_BOOL (*setAVPlaySpeed)(OMX_GraphManager* h, int speed, OMX_PTR extraData, OMX_U32 extraDataSize);
+    OMX_BOOL (*setKeyFramePlaySpeed)(OMX_GraphManager* h, int speed, OMX_PTR extraData, OMX_U32 extraDataSize);
+    OMX_BOOL (*getPlaySpeed)(OMX_GraphManager* h, int *speed, OMX_PTR extraData, OMX_U32 *extraDataSize);
 //settvout fullscreen and zoomin is obsoleted, replace with setvideodevice and setvideomode
 	OMX_BOOL (*settvout)(OMX_GraphManager* h, OMX_BOOL bTvOut, OMX_S32 tv_mode, OMX_BOOL bLayer2);
 //settvout fullscreen and zoomin is obsoleted, replace with setvideodevice and setvideomode
@@ -261,6 +309,16 @@ struct OMX_GraphManager
     OMX_BOOL (*getAudioTrackType)(OMX_GraphManager *h, OMX_U32 nTrackIndex, OMX_AUDIO_CODINGTYPE *pType);
     OMX_BOOL (*addOutBandSubtitleSource)(OMX_GraphManager *h, OMX_STRING url, OMX_STRING type);
     OMX_BOOL (*isSeekable)(OMX_GraphManager *h);
+    OMX_BOOL (*setSyncSetting)(OMX_GraphManager *h,GM_AV_SYNC_SETTING *pSetting,OMX_S32 fps);
+    OMX_BOOL (*getSyncSetting)(OMX_GraphManager *h,GM_AV_SYNC_SETTING *pSetting,OMX_S32* fps);
+
+    OMX_U32 (*GetVideoTrackNum)(OMX_GraphManager* h);
+    OMX_U32 (*GetCurVideoTrack)(OMX_GraphManager* h);
+
+    OMX_BOOL (*GetVideoTrackInfo)(OMX_GraphManager* h,OMX_U32 nTrackIndex,GM_VIDEO_TRACK_INFO * pInfo);
+    OMX_BOOL (*GetAudioTrackInfo)(OMX_GraphManager* h,OMX_U32 nTrackIndex,GM_AUDIO_TRACK_INFO * pInfo);
+    OMX_BOOL (*GetSubtitleTrackInfo)(OMX_GraphManager* h,OMX_U32 nTrackIndex,GM_SUBTITLE_TRACK_INFO * pInfo);
+
 
 	void* pData;
 };

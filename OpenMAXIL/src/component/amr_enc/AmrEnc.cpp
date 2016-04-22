@@ -1,5 +1,5 @@
 /**
- *  Copyright (c) 2009-2012, Freescale Semiconductor Inc.,
+ *  Copyright (c) 2009-2012,2016 Freescale Semiconductor Inc.,
  *  All Rights Reserved.
  *
  *  The following programs are the sole property of Freescale Semiconductor Inc.,
@@ -65,7 +65,7 @@ OMX_ERRORTYPE AmrEnc::InitComponent()
 
 	AmrType.nPortIndex = AUDIO_FILTER_OUTPUT_PORT;
 	AmrType.nChannels = 1;
-    AmrType.nBitRate = 4750;
+    AmrType.nBitRate = 12200;
     AmrType.eAMRBandMode = OMX_AUDIO_AMRBandModeNB0;
     AmrType.eAMRDTXMode = OMX_AUDIO_AMRDTXModeOff;
     AmrType.eAMRFrameFormat = OMX_AUDIO_AMRFrameFormatFSF;
@@ -93,10 +93,10 @@ OMX_ERRORTYPE AmrEnc::DeInitComponent()
 
 OMX_ERRORTYPE AmrEnc::AudioFilterInstanceInit()
 {
-	TS_PerFrame = pEncWrapper->getTsPerFrame(PcmMode.nSamplingRate);
-
-    if(pEncWrapper != NULL)
+    if(pEncWrapper != NULL) {
+        TS_PerFrame = pEncWrapper->getTsPerFrame(PcmMode.nSamplingRate);
         return pEncWrapper->InstanceInit();
+    }
     else
         return OMX_ErrorUndefined;
 }
@@ -153,11 +153,9 @@ OMX_ERRORTYPE AmrEnc::AudioFilterSetParameterPCM()
 {
     OMX_ERRORTYPE ret = OMX_ErrorNone;
 
-	if (AmrType.nChannels != PcmMode.nChannels
-			|| PcmMode.nSamplingRate != PcmMode.nSamplingRate)
+	if (AmrType.nChannels != PcmMode.nChannels)
 	{
 		AmrType.nChannels = PcmMode.nChannels;
-		PcmMode.nSamplingRate = PcmMode.nSamplingRate;
 		SendEvent(OMX_EventPortSettingsChanged, AUDIO_FILTER_OUTPUT_PORT, 0, NULL);
 	}
 

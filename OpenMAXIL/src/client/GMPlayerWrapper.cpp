@@ -123,26 +123,38 @@ static OMX_BOOL gm_seek(
     return OMX_TRUE;
 }
 
-static OMX_BOOL gm_setPlaySpeed(
+static OMX_BOOL gm_setAVPlaySpeed(
         OMX_GraphManager* h,
-        int Scale)
+        int Scale, OMX_PTR extraData, OMX_U32 extraDataSize)
 {
     GMPlayer *Player = NULL;
 
     Player = (GMPlayer*)h->pData;
-    Player->SetPlaySpeed(Scale);
+    Player->SetAVPlaySpeed(Scale, extraData, extraDataSize);
+
+    return OMX_TRUE;
+}
+
+static OMX_BOOL gm_setKeyFramePlaySpeed(
+        OMX_GraphManager* h,
+        int Scale, OMX_PTR extraData, OMX_U32 extraDataSize)
+{
+    GMPlayer *Player = NULL;
+
+    Player = (GMPlayer*)h->pData;
+    Player->SetKeyFramePlaySpeed(Scale, extraData, extraDataSize);
 
     return OMX_TRUE;
 }
 
 static OMX_BOOL gm_getPlaySpeed(
         OMX_GraphManager* h,
-        int *Scale)
+        int *Scale, OMX_PTR extraData, OMX_U32 *extraDataSize)
 {
     GMPlayer *Player = NULL;
 
     Player = (GMPlayer*)h->pData;
-    Player->GetPlaySpeed((OMX_S32 *)Scale);
+    Player->GetPlaySpeed((OMX_S32 *)Scale, extraData, extraDataSize);
 
     return OMX_TRUE;
 }
@@ -573,7 +585,63 @@ static OMX_BOOL gm_isSeekable(OMX_GraphManager *h)
     Player = (GMPlayer*)h->pData;
     return Player->IsSeekable();
 }
+static OMX_BOOL gm_setSyncSetting(OMX_GraphManager *h, GM_AV_SYNC_SETTING *pSetting,OMX_S32 fps)
+{
+    GMPlayer *Player = NULL;
 
+    Player = (GMPlayer*)h->pData;
+    if(OMX_ErrorNone != Player->SetSyncSetting(pSetting,fps))
+        return OMX_FALSE;
+
+    return OMX_TRUE;
+}
+static OMX_BOOL gm_getSyncSetting(OMX_GraphManager *h, GM_AV_SYNC_SETTING *pSetting,OMX_S32 *fps)
+{
+    GMPlayer *Player = NULL;
+
+    Player = (GMPlayer*)h->pData;
+    if(OMX_ErrorNone != Player->GetSyncSetting(pSetting,fps))
+        return OMX_FALSE;
+
+    return OMX_TRUE;
+}
+static OMX_U32 gm_getVideoTrackNum(OMX_GraphManager* h)
+{
+    GMPlayer *Player = NULL;
+
+    Player = (GMPlayer*)h->pData;
+    if(Player != NULL)
+        return Player->GetVideoTrackNum();
+    else
+        return 0;
+}
+static OMX_U32 gm_GetCurVideoTrack(OMX_GraphManager* h)
+{
+    OMX_U32 nCurVideoTrack;
+    GMPlayer *Player = NULL;
+
+    Player = (GMPlayer*)h->pData;
+    nCurVideoTrack = Player->GetCurVideoTrack();
+    return nCurVideoTrack;
+}
+static OMX_BOOL gm_GetVideoTrackInfo(OMX_GraphManager* h,OMX_U32 nTrackIndex,GM_VIDEO_TRACK_INFO * pInfo)
+{
+    GMPlayer *Player = NULL;
+    Player = (GMPlayer*)h->pData;
+    return Player->GetVideoTrackInfo(nTrackIndex,pInfo);
+}
+static OMX_BOOL gm_GetAudioTrackInfo(OMX_GraphManager* h,OMX_U32 nTrackIndex,GM_AUDIO_TRACK_INFO * pInfo)
+{
+    GMPlayer *Player = NULL;
+    Player = (GMPlayer*)h->pData;
+    return Player->GetAudioTrackInfo(nTrackIndex,pInfo);
+}
+static OMX_BOOL gm_GetSubtitleTrackInfo(OMX_GraphManager* h,OMX_U32 nTrackIndex,GM_SUBTITLE_TRACK_INFO * pInfo)
+{
+    GMPlayer *Player = NULL;
+    Player = (GMPlayer*)h->pData;
+    return Player->GetSubtitleTrackInfo(nTrackIndex,pInfo);
+}
 OMX_GraphManager* OMX_GraphManagerCreate()
 {
     OMX_GraphManager *Gm = NULL;
@@ -612,7 +680,8 @@ OMX_GraphManager* OMX_GraphManagerCreate()
     Gm->pause = gm_pause;
     Gm->resume = gm_resume;
     Gm->seek = gm_seek;
-    Gm->setPlaySpeed = gm_setPlaySpeed;
+    Gm->setAVPlaySpeed = gm_setAVPlaySpeed;
+    Gm->setKeyFramePlaySpeed = gm_setKeyFramePlaySpeed;
     Gm->getPlaySpeed = gm_getPlaySpeed;
     Gm->disableStream = gm_disableStream;
 
@@ -651,7 +720,14 @@ OMX_GraphManager* OMX_GraphManagerCreate()
     Gm->getAudioTrackType = gm_getAudioTrackType;
     Gm->addOutBandSubtitleSource = gm_addOutBandSubtitleSource;
     Gm->isSeekable = gm_isSeekable;
+    Gm->setSyncSetting = gm_setSyncSetting;
+    Gm->getSyncSetting = gm_getSyncSetting;
 
+    Gm->GetVideoTrackNum = gm_getVideoTrackNum;
+    Gm->GetCurVideoTrack = gm_GetCurVideoTrack;
+    Gm->GetVideoTrackInfo = gm_GetVideoTrackInfo;
+    Gm->GetAudioTrackInfo = gm_GetAudioTrackInfo;
+    Gm->GetSubtitleTrackInfo = gm_GetSubtitleTrackInfo;
     return Gm;
 }
 

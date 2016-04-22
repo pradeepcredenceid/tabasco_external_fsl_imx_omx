@@ -37,18 +37,6 @@ typedef struct {
     OMX_PTR pEventData;
 }GM_SYSEVENT;
 
-typedef struct {
-	OMX_U32 nTrackNum;
-	OMX_AUDIO_CODINGTYPE eCodingType;
-        OMX_U8 lanuage[16];
-}sAUDIOTRACKINFO;
-
-typedef struct {
-	OMX_U32 nTrackNum;
-       OMX_U8 type[8];
-       OMX_U8 lanuage[MAX_LANGUAGE_BYTES];
-       OMX_BOOL bInBand;
-}sSUBTITLETRACKINFO;
 
 typedef enum {
     SCREEN_NONE,
@@ -72,8 +60,9 @@ class GMPlayer {
         OMX_ERRORTYPE Pause();
         OMX_ERRORTYPE Resume();
         OMX_ERRORTYPE Seek(OMX_TIME_SEEKMODETYPE mode, OMX_TICKS position);
-        OMX_ERRORTYPE SetPlaySpeed(OMX_S32 Scale);
-        OMX_ERRORTYPE GetPlaySpeed(OMX_S32 *Scale);
+        OMX_ERRORTYPE SetAVPlaySpeed(OMX_S32 Scale, OMX_PTR extraData, OMX_U32 extraDataSize);
+        OMX_ERRORTYPE SetKeyFramePlaySpeed(OMX_S32 Scale, OMX_PTR extraData, OMX_U32 extraDataSize);
+        OMX_ERRORTYPE GetPlaySpeed(OMX_S32 *Scale, OMX_PTR extraData, OMX_U32 *extraDataSize);
         OMX_ERRORTYPE GetMediaDuration(OMX_TICKS *pDur);
         OMX_ERRORTYPE GetState(GM_STATE *pState);
         OMX_ERRORTYPE GetMediaPosition(OMX_TICKS *pCur);
@@ -130,7 +119,14 @@ class GMPlayer {
         OMX_ERRORTYPE RenderSubtitle(GM_SUBTITLE_SAMPLE &sample);
 
         OMX_BOOL IsSeekable();
+        OMX_ERRORTYPE GetSyncSetting(GM_AV_SYNC_SETTING *pSetting,OMX_S32 *pFps);
+        OMX_ERRORTYPE SetSyncSetting(GM_AV_SYNC_SETTING *pSetting,OMX_S32 pFps);
 
+        OMX_U32 GetVideoTrackNum();
+        OMX_U32 GetCurVideoTrack();
+        OMX_BOOL GetVideoTrackInfo(OMX_U32 nTrackIndex,GM_VIDEO_TRACK_INFO*pInfo);
+        OMX_BOOL GetAudioTrackInfo(OMX_U32 nTrackIndex,GM_AUDIO_TRACK_INFO*pInfo);
+        OMX_BOOL GetSubtitleTrackInfo(OMX_U32 nTrackIndex,GM_SUBTITLE_TRACK_INFO*pInfo);
         OMX_PTR EglContext;
         OMX_PTR PmContext;
         OMX_PTR GpumContext;
@@ -138,8 +134,8 @@ class GMPlayer {
     private:
         OMX_PARAM_CONTENTURITYPE *Content;
         List<GMComponent> *Pipeline;
-        List<sAUDIOTRACKINFO> *AudioTrackInfo;
-        List<sSUBTITLETRACKINFO> *SubtitleTrackInfo;
+        List<GM_AUDIO_TRACK_INFO> *AudioTrackInfo;
+        List<GM_SUBTITLE_TRACK_INFO> *SubtitleTrackInfo;
         Queue *SysEventQueue;
         fsl_osal_ptr SysEventThread;
         GM_EVENTHANDLER pAppCallback;
@@ -179,7 +175,7 @@ class GMPlayer {
 		OMX_BOOL bGetMetadata;
         OMX_TICKS MediaDuration;
         OMX_TICKS MediaStartTime;
-        OMX_S32 DelayedSpeed;
+        OMX_TIME_CONFIG_PLAYBACKTYPE DelayedRate;
         OMX_BOOL bError;
         OMX_BOOL bBuffering;
         OMX_BOOL bStreamingSource;
@@ -238,6 +234,9 @@ class GMPlayer {
         OMX_VIDEO_SURFACE_TYPE DelayedSurfaceType;
         OMX_BOOL bSetDelayedSurface;
         OMX_BOOL bSeeking;
+        GM_AV_SYNC_SETTING sSyncSetting;
+        OMX_S32 nFps;
+        OMX_PLAYBACK_MODE playbackMode;
 
         OMX_ERRORTYPE GetPipeHandle();
         OMX_STRING MediaTypeInspect();
@@ -268,9 +267,8 @@ class GMPlayer {
 		OMX_ERRORTYPE DisConnectComponent(GMComponent *pOutComp, OMX_U32 nOutPortIndex, GMComponent *pInComp, OMX_U32 nInPortIndex);
 		OMX_ERRORTYPE GetStreamDuration(OMX_TICKS *pDur, OMX_U32 nPortIndex);
 		OMX_ERRORTYPE DoSeek(OMX_TIME_SEEKMODETYPE mode, OMX_TICKS position);
-        OMX_ERRORTYPE Normal2Trick(OMX_S32 Scale);
-        OMX_ERRORTYPE Trick2Normal(OMX_S32 Scale);
-        OMX_ERRORTYPE SpeedControl(OMX_S32 Scale);
+        OMX_ERRORTYPE Normal2Trick(OMX_TIME_CONFIG_PLAYBACKTYPE &sPlaybackRate);
+        OMX_ERRORTYPE Trick2Normal(OMX_TIME_CONFIG_PLAYBACKTYPE &sPlaybackRate);
 
         OMX_ERRORTYPE SetDefaultScreenMode();
         OMX_ERRORTYPE ScreenMode(SCREENTYPE eScreenParam, OMX_BOOL bTvOut, OMX_U32 nTvMode, OMX_U32 nRotate);
@@ -290,6 +288,8 @@ class GMPlayer {
 
         OMX_ERRORTYPE DisableParserAudioPort();
         OMX_ERRORTYPE DisableParserVideoPort();
+        OMX_STRING GetVideoMime(OMX_U32 type);
+        OMX_STRING GetAudioMime(OMX_U32 type);
 };
 
 #endif

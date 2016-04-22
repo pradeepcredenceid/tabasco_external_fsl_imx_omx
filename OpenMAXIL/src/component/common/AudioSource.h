@@ -1,5 +1,5 @@
 /**
- *  Copyright (c) 2009-2011, Freescale Semiconductor Inc.,
+ *  Copyright (c) 2009-2015, Freescale Semiconductor Inc.,
  *  All Rights Reserved.
  *
  *  The following programs are the sole property of Freescale Semiconductor Inc.,
@@ -40,6 +40,7 @@ class AudioSource : public ComponentBase {
 		OMX_U8 *pDeviceReadBuffer;
 		OMX_U32 nDeviceReadLen;
 		OMX_S32 nAudioSource;
+		OMX_U16 * packageName;
 	private:
 		OMX_ERRORTYPE InitComponent();
         OMX_ERRORTYPE DeInitComponent();

@@ -48,7 +48,7 @@ OMX_ERRORTYPE AudioFakeRender::SetDevice()
 	return ret;
 }
 
-OMX_ERRORTYPE AudioFakeRender::WriteDevice(OMX_U8 *pBuffer, OMX_U32 nActuralLen)
+OMX_ERRORTYPE AudioFakeRender::WriteDevice(OMX_U8 *pBuffer, OMX_U32 nActuralLen, OMX_U32 *nConsumedLen)
 {
 	OMX_ERRORTYPE ret = OMX_ErrorNone;
 	nActuralLen /= nSampleSize;

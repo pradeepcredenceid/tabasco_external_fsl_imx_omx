@@ -1,5 +1,5 @@
 /**
- *  Copyright (c) 2011-2013, Freescale Semiconductor Inc.,
+ *  Copyright (c) 2011-2015, Freescale Semiconductor Inc.,
  *  All Rights Reserved.
  *
  *  The following programs are the sole property of Freescale Semiconductor Inc.,
@@ -536,7 +536,30 @@ static OMX_BOOL recorder_setParamTimeBetweenTimeLapseFrameCapture(
 
     return OMX_TRUE;
 }
+static OMX_BOOL recorder_setParamCaptureFps(OMX_Recorder *h,OMX_S32 fps){
+    GMRecorder *Recorder = NULL;
 
+    Recorder = (GMRecorder*)h->pData;
+    if (Recorder == NULL)
+        return OMX_FALSE;
+
+    if(OMX_ErrorNone != Recorder->setParamCaptureFps(fps))
+        return OMX_FALSE;
+
+    return OMX_TRUE;
+}
+static OMX_BOOL recorder_setAndroidVersion(OMX_Recorder *h,OMX_U8* str, OMX_U32 length){
+    GMRecorder *Recorder = NULL;
+
+    Recorder = (GMRecorder*)h->pData;
+    if (Recorder == NULL || str == NULL)
+        return OMX_FALSE;
+
+    if(OMX_ErrorNone != Recorder->setParamAndroidVersion(str, length))
+        return OMX_FALSE;
+
+    return OMX_TRUE;
+}
 static OMX_BOOL recorder_registerEventHandler(
 		OMX_Recorder *h,
 		OMX_PTR context, RECORDER_EVENTHANDLER handler)
@@ -708,6 +731,54 @@ static OMX_BOOL recorder_setClient(
     return OMX_TRUE;
 }
 
+static OMX_BOOL recorder_setPackageName(
+    OMX_Recorder *h,
+    const OMX_U16* packageName)
+{
+    GMRecorder *Recorder = NULL;
+
+    Recorder = (GMRecorder*)h->pData;
+	if (Recorder == NULL)
+        return OMX_FALSE;
+
+    if(OMX_ErrorNone != Recorder->setPackageName(packageName))
+        return OMX_FALSE;
+
+    return OMX_TRUE;
+}
+
+static OMX_BOOL recorder_getBufferProducer(
+    OMX_Recorder *h,
+    OMX_PTR *ppBufferProducer)
+{
+    GMRecorder *Recorder = NULL;
+
+    Recorder = (GMRecorder*)h->pData;
+	if (Recorder == NULL)
+        return OMX_FALSE;
+
+    if(OMX_ErrorNone != Recorder->getBufferProducer(ppBufferProducer))
+        return OMX_FALSE;
+
+    return OMX_TRUE;
+}
+
+static OMX_BOOL recorder_setInputSurface(
+    OMX_Recorder *h,
+    OMX_PTR pInputSurface)
+{
+    GMRecorder *Recorder = NULL;
+
+    Recorder = (GMRecorder*)h->pData;
+	if (Recorder == NULL)
+        return OMX_FALSE;
+
+    if(OMX_ErrorNone != Recorder->setInputSurface(pInputSurface))
+        return OMX_FALSE;
+
+    return OMX_TRUE;
+}
+
 OMX_Recorder* OMX_RecorderCreate()
 {
     OMX_Recorder *mRecorder = NULL;
@@ -765,7 +836,7 @@ OMX_Recorder* OMX_RecorderCreate()
 	mRecorder->setParamVideoTimeScale = recorder_setParamVideoTimeScale;
 	mRecorder->setParamTimeLapseEnable = recorder_setParamTimeLapseEnable;
 	mRecorder->setParamTimeBetweenTimeLapseFrameCapture = recorder_setParamTimeBetweenTimeLapseFrameCapture;
-
+    mRecorder->setParamCaptureFps = recorder_setParamCaptureFps;
 	mRecorder->registerEventHandler = recorder_registerEventHandler;
 	mRecorder->prepare = recorder_prepare;
 	mRecorder->start = recorder_start;
@@ -777,7 +848,10 @@ OMX_Recorder* OMX_RecorderCreate()
 	mRecorder->getMediaTime = recorder_getMediaTime;
 	mRecorder->deleteIt = recorder_deleteIt;
     mRecorder->setClient = recorder_setClient;
-
+    mRecorder->setPackageName = recorder_setPackageName;
+    mRecorder->getBufferProducer = recorder_getBufferProducer;
+    mRecorder->setInputSurface = recorder_setInputSurface;
+    mRecorder->setAndroidVersionString = recorder_setAndroidVersion;
     return mRecorder;
 }
 

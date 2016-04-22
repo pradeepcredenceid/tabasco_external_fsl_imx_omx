@@ -1,5 +1,5 @@
 /**
- *  Copyright (c) 2011-2014, Freescale Semiconductor Inc.,
+ *  Copyright (c) 2011-2016, Freescale Semiconductor Inc.,
  *  All Rights Reserved.
  *
  *  The following programs are the sole property of Freescale Semiconductor Inc.,
@@ -14,6 +14,15 @@
 #include "PMemory.h"
 #include "PlatformResourceMgrItf.h"
 #endif
+
+
+#if 0
+#undef LOG_DEBUG
+#undef LOG_WARNING
+#define LOG_DEBUG printf
+#define LOG_WARNING printf
+#endif
+
 
 #define AUDIO_CLOCK_PORT 0
 #define VIDEO_CLOCK_PORT 1
@@ -45,6 +54,7 @@
 
 #ifdef ANDROID_BUILD
 #define VIDEO_SOURCE "video_source.camera"
+#define VIDEO_SOURCE_SURFACE_NAME "video_source.surface"
 #else
 #define VIDEO_SOURCE "video_source.v4l"
 #endif
@@ -232,6 +242,8 @@ OMX_ERRORTYPE GMRecorder::reset()
 #elif (ANDROID_VERSION >= JELLY_BEAN_42)
     bStoreMetadataInBuffer = OMX_TRUE;
 #endif
+    pBufferProducer = NULL;
+    pInputSurface = NULL;
 	bError = OMX_FALSE;
     bMalFormat = OMX_FALSE;
     State = RECORDER_STATE_STOP;
@@ -269,6 +281,9 @@ OMX_ERRORTYPE GMRecorder::reset()
 	gm_timeBetweenTimeLapseFrameCaptureUs = 0;
 	gm_clientName = NULL;
 	gm_clientUID = 0;
+	gm_packageName = NULL;
+    gm_capture_fps = 0;
+    gm_timeBetweenCaptureUs = 0;
 
     if (mSharedFd >= 0) {
         closeFD(mSharedFd);
@@ -326,6 +341,9 @@ OMX_ERRORTYPE GMRecorder::init()
         goto err;
     }
 
+    gm_androidVersion = NULL;
+    gm_androidVersionLen = 0;
+
     reset();
 
     return OMX_ErrorNone;
@@ -339,6 +357,8 @@ err:
 OMX_ERRORTYPE GMRecorder::deleteIt()
 {
 	OMX_ERRORTYPE ret = OMX_ErrorNone;
+
+    LOG_DEBUG("%s", __FUNCTION__);
 
 	stop();
 
@@ -360,6 +380,8 @@ OMX_ERRORTYPE GMRecorder::deleteIt()
     if(Pipeline != NULL)
         FSL_DELETE(Pipeline);
 
+
+    FSL_FREE(gm_androidVersion);
 	return ret;
 }
 
@@ -933,7 +955,31 @@ OMX_ERRORTYPE GMRecorder::setParamTimeBetweenTimeLapseFrameCapture(OMX_S64 timeU
 	gm_timeBetweenTimeLapseFrameCaptureUs = timeUs;
 	return ret;
 }
+OMX_ERRORTYPE GMRecorder::setParamCaptureFps(OMX_S32 fps)
+{
+    OMX_ERRORTYPE ret = OMX_ErrorNone;
+    OMX_S64 time = (OMX_S64)((double)1000000*1000/fps+0.5);
 
+    gm_capture_fps = fps;
+    gm_timeBetweenCaptureUs = time;
+
+    printf("GMRecorder setParamCaptureFps %d,lld",gm_capture_fps,gm_timeBetweenCaptureUs);
+    return ret;
+}
+OMX_ERRORTYPE GMRecorder::setParamAndroidVersion(OMX_U8* str, OMX_U32 length)
+{
+
+    if(str == NULL)
+        return OMX_ErrorBadParameter;
+
+    if(gm_androidVersion == NULL && length > 0){
+        gm_androidVersion = (OMX_U8*)FSL_MALLOC(length);
+        fsl_osal_memcpy(gm_androidVersion,str,length);
+        gm_androidVersionLen = length;
+    }
+
+    return OMX_ErrorNone;
+}
 OMX_ERRORTYPE GMRecorder::AddSysEvent(
         GM_SYSEVENT *pSysEvent)
 {
@@ -1029,6 +1075,26 @@ OMX_ERRORTYPE GMRecorder::SysEventHandler(
                 if((OMX_S32)nData1 == OMX_ErrorMalFormat) {
                     LOG_ERROR("GMRecorder get OMX_ErrorMalFormat");
                     bMalFormat = OMX_TRUE;
+                }
+            }
+            break;
+        case OMX_EventPortSettingsChanged:
+            {
+                LOG_DEBUG("GMRecorder get PortSettingsChanged event from %s", pComponent->name);
+                if(pComponent == VideoSource) {
+                    OMX_U32 nPortIndex = nData1;
+                    OMX_PARAM_PORTDEFINITIONTYPE sPortDefVS;
+
+                    OMX_INIT_STRUCT(&sPortDefVS, OMX_PARAM_PORTDEFINITIONTYPE);
+                    sPortDefVS.nPortIndex = nPortIndex;
+                    OMX_GetParameter(VideoSource->hComponent, OMX_IndexParamPortDefinition, &sPortDefVS);
+
+                    GRALLOC_BUFFER_PARAMETER param;
+                    OMX_INIT_STRUCT(&param, GRALLOC_BUFFER_PARAMETER);
+                    param.eColorFormat = sPortDefVS.format.video.eColorFormat;
+
+                    LOG_DEBUG("GMRecorder set video format from vs to encoder");
+                    OMX_SetConfig(VideoEncoder->hComponent, OMX_IndexConfigGrallocBufferParameter, &param);
                 }
             }
             break;
@@ -1231,6 +1297,7 @@ OMX_ERRORTYPE GMRecorder::LoadVSComponent()
 	static const KeyMap kKeyMap[] = {
 		{ VIDEO_SOURCE_DEFAULT, (OMX_STRING)VIDEO_SOURCE },
 		{ VIDEO_SOURCE_CAMERA, (OMX_STRING)VIDEO_SOURCE },
+		{ VIDEO_SOURCE_SURFACE, (OMX_STRING)VIDEO_SOURCE_SURFACE_NAME },
 	};
 
 	static const size_t kNumMapEntries = sizeof(kKeyMap) / sizeof(kKeyMap[0]);
@@ -1246,7 +1313,7 @@ OMX_ERRORTYPE GMRecorder::LoadVSComponent()
 		}
 	}
 
-	LOG_ERROR("Can't load component with role: %s\n", kKeyMap[j].tag);
+	LOG_ERROR("Can't find component of video source: %d\n", gm_vs);
 	return OMX_ErrorInvalidComponentName;
 }
 
@@ -1423,6 +1490,9 @@ OMX_ERRORTYPE GMRecorder::SetASParameter()
 
 	OMX_SetParameter(AudioSource->hComponent, OMX_IndexParamMaxFileDuration, &gm_timeUs);
 
+    if(gm_packageName)
+        OMX_SetParameter(AudioSource->hComponent, OMX_IndexParamPackageName, (OMX_PTR)gm_packageName);
+
 	return ret;
 }
 
@@ -1496,6 +1566,11 @@ OMX_ERRORTYPE GMRecorder::SetVSParameter()
 	OMX_ERRORTYPE ret = OMX_ErrorNone;
 	OMX_PARAM_PORTDEFINITIONTYPE sPortDef;
 
+	LOG_DEBUG("GMRecorder::%s %dx%d,fram rate %d, pInputSurface %p", __FUNCTION__, gm_width, gm_height, gm_frames_per_second, pInputSurface);
+
+    if(pInputSurface != NULL)
+        OMX_SetParameter(VideoSource->hComponent, OMX_IndexParamBufferConsumer, pInputSurface);
+
 	OMX_INIT_STRUCT(&sPortDef, OMX_PARAM_PORTDEFINITIONTYPE);
 	sPortDef.nPortIndex = 1;
 	OMX_GetParameter(VideoSource->hComponent, OMX_IndexParamPortDefinition, &sPortDef);
@@ -1519,7 +1594,7 @@ OMX_ERRORTYPE GMRecorder::SetVSParameter()
 	OMX_SetParameter(VideoSource->hComponent, OMX_IndexParamMaxFileDuration, &gm_timeUs);
 	OMX_SetParameter(VideoSource->hComponent, OMX_IndexParamClientName, (OMX_PTR)gm_clientName);
 	OMX_SetParameter(VideoSource->hComponent, OMX_IndexParamClientUID, &gm_clientUID);
-
+        
 	return ret;
 }
 
@@ -1654,6 +1729,18 @@ OMX_ERRORTYPE GMRecorder::SetMuxerParameter()
     OMX_SetConfig(Muxer->hComponent, OMX_IndexConfigCommonRotate, &sRotation);
 
 
+    if(gm_capture_fps > 0){
+        OMX_SetParameter(Muxer->hComponent, OMX_IndexParamCaptureFps, &gm_capture_fps);
+    }
+
+    if(gm_androidVersion != NULL){
+        OMX_PARAM_ANDROID_VERSION sAndroidVersion;
+        OMX_INIT_STRUCT(&sAndroidVersion, OMX_PARAM_ANDROID_VERSION);
+        sAndroidVersion.pString = gm_androidVersion;
+        sAndroidVersion.nLength = gm_androidVersionLen;
+        OMX_SetParameter(Muxer->hComponent, OMX_IndexParamAndroidVersion, &sAndroidVersion);
+    }
+
 	return ret;
 }
 
@@ -1725,6 +1812,7 @@ OMX_ERRORTYPE GMRecorder::SetupPipeline()
 	if (bHasVideo == OMX_TRUE) {
 		SetVSParameter();
 		SetVEParameter();
+
 
 		OMX_VIDEO_PARAM_PORTFORMATTYPE sVideoFmt;
 		OMX_INIT_STRUCT(&sVideoFmt, OMX_VIDEO_PARAM_PORTFORMATTYPE);
@@ -1894,6 +1982,8 @@ OMX_ERRORTYPE GMRecorder::StartPipeline()
 {
 	OMX_ERRORTYPE ret = OMX_ErrorNone;
 
+	LOG_DEBUG("%s", __FUNCTION__);
+
 	if (bHasAudio == OMX_TRUE) {
         ret = AudioSource->StateTransUpWard(OMX_StateIdle);
         if(ret != OMX_ErrorNone)
@@ -1951,6 +2041,16 @@ OMX_ERRORTYPE GMRecorder::StartPipeline()
         ret = VideoEncoder->StartProcessNoWait();
         if(ret != OMX_ErrorNone)
             return ret;
+
+        // if input surface is set, shall not return buffer producer according to API definition in MediaRecorder.java
+        if(gm_vs == VIDEO_SOURCE_SURFACE && pInputSurface == NULL){
+            OMX_PARAM_BUFFER_PRODUCER sBufferProducer;
+            OMX_INIT_STRUCT(&sBufferProducer, OMX_PARAM_BUFFER_PRODUCER);
+            ret = OMX_GetParameter(VideoSource->hComponent, OMX_IndexParamBufferProducer, &sBufferProducer);
+            if(ret == OMX_ErrorNone)
+                pBufferProducer = sBufferProducer.pBufferProducer;
+        }
+
 	}
 
 	ret = Muxer->StateTransUpWard(OMX_StateIdle);
@@ -2202,6 +2302,29 @@ OMX_ERRORTYPE GMRecorder::setClient(const OMX_U16 * clientName, OMX_S32 clientUI
     return OMX_ErrorNone;
 }
 
+OMX_ERRORTYPE GMRecorder::setPackageName(const OMX_U16 * packageName)
+{
+    gm_packageName = packageName;
+    return OMX_ErrorNone;
+}
 
+OMX_ERRORTYPE GMRecorder::getBufferProducer(OMX_PTR *ppBufferProducer)
+{
+    *ppBufferProducer = pBufferProducer;
+    return OMX_ErrorNone;
+}
+
+OMX_ERRORTYPE GMRecorder::setInputSurface(OMX_PTR inputSurface)
+{
+    LOG_DEBUG("GMRecorder::setInputSurface %p", inputSurface);
+
+    if (inputSurface == NULL) {
+        LOG_ERROR("inputSurface is NULL");
+        return OMX_ErrorBadParameter;
+    }
+    pInputSurface = inputSurface;
+
+    return OMX_ErrorNone;
+}
 
 

@@ -77,7 +77,7 @@ OMX_STREAMING_PIPE_API CPresult HttpsPipe_Close(CPhandle hContent)
 
     FSL_DELETE(hPipe);
 
-    LOG_INFO("HttpsPipe_Close hContent %p ok\n", hContent);
+    LOG_INFO("HttpsPipe_Close hContent ok\n");
 
     return STREAMING_PIPE_SUCESS;
 }

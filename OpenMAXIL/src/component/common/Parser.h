@@ -90,6 +90,7 @@ class Parser : public ComponentBase {
         OMX_U8 VideoCodecData[VIDEO_CODEC_DATA_BUFFER_LEN];
         OMX_S32 nVideoCodecDataLen;
         OMX_BOOL bInsertVideoCodecData;
+        OMX_PLAYBACK_MODE playbackMode;
 
     protected:
         CPhandle hMedia;

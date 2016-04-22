@@ -270,19 +270,24 @@ OMX_ERRORTYPE AudioParserBase::ParserID3Tag()
 
 	OMX_U32 nReadLen = ID3V2_HEADER_SIZE;
 	OMX_U32 nActuralRead;
-
-	if (nReadLen > nFileSize)
-        return OMX_ErrorNoMore;
-
-	nActuralRead = fileOps.Read(sourceFileHandle, pTmpBuffer, nReadLen, this);
-
     OMX_U64 len = 0;
     bool isValid = FALSE;
     size_t size = 0;
-
     ID3ParserHandle h = NULL;
-    if (ID3ParserCreatParser(&h) < 0)
-        return OMX_ErrorUndefined;
+    metadata *meta = NULL;
+    const void *data;
+
+	if (nReadLen > nFileSize) {
+        ret = OMX_ErrorNoMore;
+        goto bail;
+    }
+
+	nActuralRead = fileOps.Read(sourceFileHandle, pTmpBuffer, nReadLen, this);
+
+    if (ID3ParserCreatParser(&h) < 0) {
+        ret = OMX_ErrorUndefined;
+        goto bail;
+    }
 
     len = ID3ParserGetV2Size(h, pTmpBuffer, nReadLen);
 
@@ -301,8 +306,10 @@ OMX_ERRORTYPE AudioParserBase::ParserID3Tag()
 			pTmpBuffer = (OMX_U8 *)FSL_MALLOC(nBeginPoint);
 			if (pTmpBuffer == NULL)
 			{
+			    FSL_FREE(pCopyBuffer);
 				LOG_ERROR("Can't get memory.\n");
-				return OMX_ErrorInsufficientResources;
+				ret = OMX_ErrorInsufficientResources;
+                goto bail;
 			}
 			fsl_osal_memset(pTmpBuffer, 0, nBeginPoint);
 			fsl_osal_memcpy(pTmpBuffer, pCopyBuffer, nReadLen);
@@ -325,8 +332,10 @@ OMX_ERRORTYPE AudioParserBase::ParserID3Tag()
 	}
 
 	if (!isValid || 0 == len) {
-        if (isLiveSource)
-            return OMX_ErrorUndefined;
+        if (isLiveSource) {
+            ret = OMX_ErrorUndefined;
+            goto bail;
+        }
 
 		nReadLen = ID3V1_DATA_SIZE;
 		fsl_osal_memset(pTmpBuffer, 0, AUDIO_PARSER_READ_SIZE);
@@ -338,13 +347,12 @@ OMX_ERRORTYPE AudioParserBase::ParserID3Tag()
 
 		if (!isValid) {
 			LOG_DEBUG("No any metadata.\n");
-			FSL_FREE(pTmpBuffer);
-			return ret;
+			goto bail;
 		}
 	}
 
     ID3ParserGetSize(h, &size);
-    metadata *meta = (metadata *)FSL_MALLOC(sizeof(metadata) * size);
+    meta = (metadata *)FSL_MALLOC(sizeof(metadata) * size);
     ID3ParserGetTag(h, meta);
 
     for (size_t i = 0; i < size; ++i) {
@@ -354,14 +362,16 @@ OMX_ERRORTYPE AudioParserBase::ParserID3Tag()
 
     size_t dataSize;
     char *mime;
-    const void *data = ID3ParserGetAlbumArt(h, &dataSize, &mime);
+    data = ID3ParserGetAlbumArt(h, &dataSize, &mime);
 
     if (data) {
 		SetMetadata((OMX_STRING)"albumart", (char *)data, dataSize);
 		LOG_DEBUG("albumart format: %s\n", mime);
     }
 
-    ID3ParserDeleteParser(h);
+bail:
+    if(h)
+        ID3ParserDeleteParser(h);
     FSL_FREE(pTmpBuffer);
     FSL_FREE(meta);
 

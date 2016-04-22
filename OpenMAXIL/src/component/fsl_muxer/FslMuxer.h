@@ -65,6 +65,8 @@ class FslMuxer : public Muxer {
 
         OMX_ERRORTYPE LoadCoreMuxer();
         OMX_ERRORTYPE UnLoadCoreMuxer();
+        OMX_ERRORTYPE AddCaptureFpsInfo(OMX_S32 fps);
+        OMX_ERRORTYPE AddAndroidVersion( OMX_U8* string,OMX_U32 len);
 };
 
 #endif

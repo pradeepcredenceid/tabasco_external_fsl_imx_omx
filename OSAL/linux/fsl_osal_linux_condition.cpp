@@ -50,12 +50,14 @@ efsl_osal_return_type_t fsl_osal_cond_create(fsl_osal_ptr *cond)
     ret = pthread_cond_init(&(pCond->cv), NULL);
     if(ret != 0) {
         printf("Creat condition variable failed.\n");
+        fsl_osal_dealloc(pCond);
         return E_FSL_OSAL_FAILURE;
     }
 
     ret = pthread_mutex_init(&(pCond->mp), NULL);
     if(ret != 0) {
         printf("Creat mutex for condition variable failed.\n");
+        fsl_osal_dealloc(pCond);
         return E_FSL_OSAL_FAILURE;
     }
 

@@ -18,7 +18,8 @@ LOCAL_SHARED_LIBRARIES := lib_omx_common_v2_arm11_elinux \
                           lib_omx_utils_v2_arm11_elinux \
 			  lib_omx_res_mgr_v2_arm11_elinux \
 			  libui \
-			  libutils
+			  libutils \
+			  liblog
 
 LOCAL_PRELINK_MODULE := false
 	

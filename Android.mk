@@ -42,7 +42,8 @@ FSL_OMX_INCLUDES := \
 
 
 ANDROID_VERSION_LIST = -DFROYO=220 -DGINGER_BREAD=230 -DHONEY_COMB=300 \
-		       -DICS=400 -DJELLY_BEAN_42=420 -DJELLY_BEAN_43=430 -DKITKAT_44=440 -DLOLLIPOP_50=500
+		       -DICS=400 -DJELLY_BEAN_42=420 -DJELLY_BEAN_43=430 -DKITKAT_44=440 -DLOLLIPOP_50=500 \
+               -DMARSH_MALLOW_600=600
 
 ifeq ($(findstring x2.2,x$(PLATFORM_VERSION)), x2.2)
     ANDROID_VERSION_MACRO = 220
@@ -70,6 +71,9 @@ ifeq ($(findstring x5.0,x$(PLATFORM_VERSION)), x5.0)
 endif
 ifeq ($(findstring x5.1,x$(PLATFORM_VERSION)), x5.1)
     ANDROID_VERSION_MACRO = 510
+endif
+ifeq ($(findstring x6.0,x$(PLATFORM_VERSION)), x6.0)
+    ANDROID_VERSION_MACRO = 600
 endif
 
 
@@ -147,6 +151,27 @@ ifeq ($(findstring x5.,x$(PLATFORM_VERSION)), x5.)
 		FSL_OMX_CFLAGS += -DMX7X
     endif
 endif
+ifeq ($(findstring x6.,x$(PLATFORM_VERSION)), x6.)
+    FSL_OMX_CFLAGS += -DMEDIA_SCAN_2_3_3_API
+    FSL_OMX_CFLAGS += -UDOMX_STEREO_OUTPUT
+
+    FSL_OMX_INCLUDES += $(LOCAL_PATH)/../../frameworks/base/media/libstagefright/include \
+	$(LOCAL_PATH)/../../frameworks/base/include/ui/egl
+    FSL_OMX_INCLUDES += $(LOCAL_PATH)/../../frameworks/av/include/media/stagefright/ \
+	$(LOCAL_PATH)/../../frameworks/av/include/ui/egl
+    ifeq ($(TARGET_BOARD_PLATFORM), imx5x)
+        FSL_OMX_INCLUDES += $(LOCAL_PATH)/../../hardware/imx/mx5x/libgralloc
+        FSL_OMX_CFLAGS += -DMX5X
+    endif
+    ifeq ($(TARGET_BOARD_PLATFORM), imx6)
+        FSL_OMX_INCLUDES += $(LOCAL_PATH)/../../hardware/imx/mx6/libgralloc_wrapper
+		FSL_OMX_CFLAGS += -DMX6X
+    endif
+    ifeq ($(TARGET_BOARD_PLATFORM), imx7)
+        FSL_OMX_INCLUDES += $(LOCAL_PATH)/../../hardware/imx/mx6/libgralloc_wrapper
+		FSL_OMX_CFLAGS += -DMX7X
+    endif
+endif
 
 include $(FSL_OMX_PATH)/utils/id3_parser/Android.mk
 
@@ -202,6 +227,11 @@ ifeq ($(findstring x5.,x$(PLATFORM_VERSION)), x5.)
 include $(FSL_OMX_PATH)/OpenMAXIL/src/component/camera_source/Android.mk
 include $(FSL_OMX_PATH)/OpenMAXIL/src/component/aac_enc/Android.mk
 endif
+ifeq ($(findstring x6.,x$(PLATFORM_VERSION)), x6.)
+include $(FSL_OMX_PATH)/OpenMAXIL/src/component/camera_source/Android.mk
+include $(FSL_OMX_PATH)/OpenMAXIL/src/component/surface_source/Android.mk
+include $(FSL_OMX_PATH)/OpenMAXIL/src/component/aac_enc/Android.mk
+endif
 
 ifeq ($(BOARD_HAVE_VPU),true)
 include $(FSL_OMX_PATH)/OpenMAXIL/src/component/vpu_wrapper/Android.mk
@@ -239,6 +269,10 @@ ifeq ($(findstring x4.,x$(PLATFORM_VERSION)), x4.)
 include $(FSL_OMX_PATH)/OpenMAXIL/src/component/surface_render/Android.mk
 endif
 ifeq ($(findstring x5.,x$(PLATFORM_VERSION)), x5.)
+include $(FSL_OMX_PATH)/OpenMAXIL/src/component/surface_render/Android.mk
+include $(FSL_OMX_PATH)/OpenMAXIL/src/component/soft_hevc_dec/Android.mk
+endif
+ifeq ($(findstring x6.,x$(PLATFORM_VERSION)), x6.)
 include $(FSL_OMX_PATH)/OpenMAXIL/src/component/surface_render/Android.mk
 include $(FSL_OMX_PATH)/OpenMAXIL/src/component/soft_hevc_dec/Android.mk
 endif

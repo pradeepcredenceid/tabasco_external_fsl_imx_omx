@@ -596,7 +596,7 @@ AUDIO_FILTERRETURNTYPE AudioProcessor::AudioFilterFrame()
 				pOutBufferHdr->nFilledLen);
 		if (nPostProcessLen != nActuralLen)
 		{
-			OMX_TICKS TS_PerFrameTmp = nActuralLen/PcmMode.nChannels \
+			OMX_TICKS TS_PerFrameTmp = (OMX_TICKS)nActuralLen/PcmMode.nChannels \
 									   /(PcmMode.nBitPerSample>>3)*OMX_TICKS_PER_SECOND \
 									   /PcmMode.nSamplingRate;
 			TS_Manager.TS_SetIncrease(TS_PerFrameTmp);

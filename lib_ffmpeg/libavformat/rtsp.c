@@ -622,7 +622,7 @@ static void rtsp_parse_transport(RTSPMessageHeader *reply, const char *p)
 {
     char transport_protocol[16];
     char profile[16];
-    char lower_transport[16];
+    char lower_transport[16] = {'\0'};
     char parameter[16];
     RTSPTransportField *th;
     char buf[256];

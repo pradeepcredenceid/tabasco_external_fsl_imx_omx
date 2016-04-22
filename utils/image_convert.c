@@ -107,8 +107,10 @@ OMX_ImageConvert* OMX_ImageConvertCreate()
     fsl_osal_memset(data, 0, sizeof(OMX_ImageConvertPrivateData));
     /* allocate memory for image convert object */
     ic = (OMX_ImageConvert *)FSL_MALLOC(sizeof(OMX_ImageConvert));
-    if (ic == NULL)
+    if (ic == NULL){
+        FSL_FREE(data);
         return NULL;
+    }
 
     fsl_osal_memset(ic, 0, sizeof(OMX_ImageConvert));
 
@@ -365,6 +367,7 @@ ic_jpeg_enc(OMX_ImageConvert *h, OMX_IMAGE_PORTDEFINITIONTYPE *format, OMX_U8 *b
 #endif
     if(jpeg_enc_ctx == NULL){
 	  printf("Malloc jpeg_enc_context failed\n");
+	  FSL_FREE(obj_ptr);
         return OMX_FALSE;
     }
     jpeg_enc_ctx->nSize = 1024;
@@ -374,6 +377,10 @@ ic_jpeg_enc(OMX_ImageConvert *h, OMX_IMAGE_PORTDEFINITIONTYPE *format, OMX_U8 *b
     jpeg_enc_ctx->pBuf = (JPEG_ENC_UINT8 *)FSL_MALLOC(jpeg_enc_ctx->nSize);
     if(jpeg_enc_ctx->pBuf==NULL)	{
         printf("Malloc failed\n");
+#ifdef USING_CONTEXT
+        FSL_FREE(jpeg_enc_ctx);
+#endif
+        FSL_FREE(obj_ptr);
         return OMX_FALSE;
     }
     fsl_osal_memset(jpeg_enc_ctx->pBuf,0,jpeg_enc_ctx->nSize);
@@ -476,7 +483,7 @@ ic_jpeg_enc(OMX_ImageConvert *h, OMX_IMAGE_PORTDEFINITIONTYPE *format, OMX_U8 *b
             printf("Malloc error after query\n");
             return OMX_FALSE;
         }
-        fsl_osal_memset(mem_info->memptr,0,sizeof(mem_info->memptr));
+        fsl_osal_memset(mem_info->memptr,0,mem_info->size);
     }
 
     /* --------------------------------------------
@@ -582,6 +589,7 @@ static OMX_U32 pxlfmt2bpp(OMX_COLOR_FORMATTYPE omx_pxlfmt)
 	  break;
 	case OMX_COLOR_FormatL2:
 	  bpp = 2;
+      break;
 	case OMX_COLOR_FormatL4:
 	  bpp = 4;
 	  break;

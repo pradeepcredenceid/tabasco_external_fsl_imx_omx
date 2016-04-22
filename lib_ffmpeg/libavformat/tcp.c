@@ -135,8 +135,8 @@ static int tcp_open(URLContext *h, const char *uri, int flags)
     }
     s = av_malloc(sizeof(TCPContext));
     if (!s) {
-        freeaddrinfo(ai);
-        return AVERROR(ENOMEM);
+        ret = AVERROR(ENOMEM);
+        goto fail1;
     }
     h->priv_data = s;
     h->is_streamed = 1;

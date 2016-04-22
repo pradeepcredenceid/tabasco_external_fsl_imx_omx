@@ -512,6 +512,7 @@ end:
 double av_expr_eval(AVExpr *e, const double *const_values, void *opaque)
 {
     Parser p;
+    memset(&p, 0, sizeof(p));
 
     p.const_values = const_values;
     p.opaque     = opaque;

@@ -23,6 +23,30 @@ using namespace android;
 #define LOG_WARNING printf
 #endif
 
+#if (ANDROID_VERSION >= MARSH_MALLOW_600)
+static unsigned int calculateMinFrameCount(OMX_U32 sampleRate)
+{
+    unsigned int afFrameCount, afSampleRate, afLatency, minBufCount;
+    unsigned int defaultMinFrameCount = sampleRate * 500 / 1000;
+
+    if (AudioSystem::getOutputFrameCount(&afFrameCount, AUDIO_STREAM_MUSIC) != NO_ERROR)
+        return defaultMinFrameCount;
+
+    if (AudioSystem::getOutputSamplingRate(&afSampleRate, AUDIO_STREAM_MUSIC) != NO_ERROR)
+        return defaultMinFrameCount;
+
+    if (AudioSystem::getOutputLatency(&afLatency, AUDIO_STREAM_MUSIC) != NO_ERROR)
+        return defaultMinFrameCount;
+
+    minBufCount = afLatency / ((1000 * afFrameCount) / afSampleRate);
+    if (minBufCount < 2) {
+        minBufCount = 2;
+    }
+
+    return minBufCount * sourceFramesNeededWithTimestretch(sampleRate, afFrameCount, afSampleRate, 2.0f);
+}
+#endif
+
 AndroidAudioRender::AndroidAudioRender()
 {
     LOG_DEBUG("%s", __FUNCTION__);
@@ -40,6 +64,10 @@ AndroidAudioRender::AndroidAudioRender()
     nWrited = 0;
     audioType = OMX_AUDIO_CodingPCM;
     bOpened = OMX_FALSE;
+#if (ANDROID_VERSION >= MARSH_MALLOW_600)
+    mPlaybackSettings = AUDIO_PLAYBACK_RATE_DEFAULT;
+#endif
+
 }
 
 OMX_ERRORTYPE AndroidAudioRender::SelectDevice(OMX_PTR device)
@@ -147,6 +175,7 @@ OMX_ERRORTYPE AndroidAudioRender::SetDevice()
 {
     status_t status = NO_ERROR;
     OMX_U32 nSamplingRate;
+    OMX_U32 bufferCount;
 
     if(mAudioSink == NULL)
         return OMX_ErrorBadParameter;
@@ -229,7 +258,7 @@ OMX_ERRORTYPE AndroidAudioRender::SetDevice()
     #if (ANDROID_VERSION >= JELLY_BEAN_43)
     unsigned
     #endif
-        int afFrameCount, afSampleRate, bufferCount;
+        int afFrameCount, afSampleRate;
 
     if (AudioSystem::getOutputFrameCount(&afFrameCount, AUDIO_STREAM_MUSIC) != NO_ERROR)
         return OMX_ErrorUndefined;
@@ -237,12 +266,19 @@ OMX_ERRORTYPE AndroidAudioRender::SetDevice()
     if (AudioSystem::getOutputSamplingRate(&afSampleRate, AUDIO_STREAM_MUSIC) != NO_ERROR)
         return OMX_ErrorUndefined;
 
+#if (ANDROID_VERSION >= MARSH_MALLOW_600)
+    int frameCount = calculateMinFrameCount(PcmMode.nSamplingRate);
+    int framePerBuffer = PcmMode.nSamplingRate * afFrameCount / afSampleRate;
+    bufferCount = (frameCount + framePerBuffer - 1) / framePerBuffer;
+#else
     bufferCount = DEFAULT_AUDIOSINK_BUFFERCOUNT;
     char value[PROPERTY_VALUE_MAX];
     if (property_get("ro.kernel.qemu", value, 0))
         bufferCount  = 12;  // to prevent systematic buffer underrun for emulator
 
     int frameCount = (nSamplingRate*afFrameCount*bufferCount)/afSampleRate;
+#endif
+
     int frameSize;
     if (audio_is_linear_pcm(format)) {
         frameSize = nChannelsOut * audio_bytes_per_sample(format);
@@ -285,7 +321,11 @@ OMX_ERRORTYPE AndroidAudioRender::SetDevice()
 
 #endif
 
+#if (ANDROID_VERSION >= MARSH_MALLOW_600)
+    nPeriodSize = nBufferSize/nSampleSize/bufferCount;
+#else
     nPeriodSize = nBufferSize/nSampleSize/DEFAULT_AUDIOSINK_BUFFERCOUNT;
+#endif
 
     if(audioType == OMX_AUDIO_CodingIEC937)
         nFadeInFadeOutProcessLen = 0;
@@ -296,26 +336,57 @@ OMX_ERRORTYPE AndroidAudioRender::SetDevice()
     return OMX_ErrorNone;
 }
 
-OMX_ERRORTYPE AndroidAudioRender::WriteDevice(OMX_U8 *pBuffer, OMX_U32 nActuralLen)
+OMX_U32 AndroidAudioRender::DataLenOut2In(OMX_U32 nLength)
 {
-    if(mAudioSink == NULL)
-        return OMX_ErrorBadParameter;
+    OMX_U32 nActualLen = nLength;
 
-    OMX_U32 nActuralLenOrg = nActuralLen;
+    if(PcmMode.nBitPerSample == 24)
+        nActualLen = nActualLen / (nBitPerSampleOut>>3) * (PcmMode.nBitPerSample>>3);
+#ifdef OMX_STEREO_OUTPUT
+    if (PcmMode.nChannels > 2)
+        nActualLen = nActualLen / nChannelsOut * PcmMode.nChannels;
+#endif
+
+    return nActualLen;
+}
+
+OMX_BOOL AndroidAudioRender::IsNeedConvertData()
+{
+    OMX_BOOL bConvert = OMX_FALSE;
+
+#if (ANDROID_VERSION >= LOLLIPOP_50)
+
+#ifdef OMX_STEREO_OUTPUT
+    if (PcmMode.nChannels > 2)
+        bConvert = OMX_TRUE;
+#endif
+
+    if(PcmMode.nBitPerSample == 8 || PcmMode.nBitPerSample == 24)
+        bConvert = OMX_TRUE;
+#endif
+
+    return bConvert;
+}
+
+
+OMX_ERRORTYPE AndroidAudioRender::ConvertData(OMX_U8* pOut, OMX_U32 *nOutSize, OMX_U8 *pIn, OMX_U32 nInSize)
+{
+    if(NULL == pOut || NULL == pIn)
+        return OMX_ErrorUndefined;
 
 #ifdef OMX_STEREO_OUTPUT
 	if (PcmMode.nChannels > 2)
 	{
 		OMX_U32 i, j, Len;
 
-		Len = nActuralLen / (PcmMode.nBitPerSample>>3) / PcmMode.nChannels;
-		nActuralLen = Len * (PcmMode.nBitPerSample>>3) * nChannelsOut;
+		Len = nInSize / (PcmMode.nBitPerSample>>3) / PcmMode.nChannels;
+		nInSize = Len * (PcmMode.nBitPerSample>>3) * nChannelsOut;
 
 		switch(PcmMode.nBitPerSample)
 		{
 			case 8:
 				{
-					OMX_S8 *pSrc = (OMX_S8 *)pBuffer, *pDst = (OMX_S8 *)pBuffer;
+					OMX_S8 *pSrc = (OMX_S8 *)pIn, *pDst = (OMX_S8 *)pOut;
 					for (i = 0; i < Len; i ++)
 					{
 						*pDst++ = *pSrc++;
@@ -326,7 +397,7 @@ OMX_ERRORTYPE AndroidAudioRender::WriteDevice(OMX_U8 *pBuffer, OMX_U32 nActuralL
 				break;
 			case 16:
 				{
-					OMX_S16 *pSrc = (OMX_S16 *)pBuffer, *pDst = (OMX_S16 *)pBuffer;
+					OMX_S16 *pSrc = (OMX_S16 *)pIn, *pDst = (OMX_S16 *)pOut;
 					for (i = 0; i < Len; i ++)
 					{
 						*pDst++ = *pSrc++;
@@ -337,7 +408,7 @@ OMX_ERRORTYPE AndroidAudioRender::WriteDevice(OMX_U8 *pBuffer, OMX_U32 nActuralL
 				break;
 			case 24:
 				{
-					OMX_U8 *pSrc = (OMX_U8 *)pBuffer, *pDst = (OMX_U8 *)pBuffer;
+					OMX_U8 *pSrc = (OMX_U8 *)pIn, *pDst = (OMX_U8 *)pOut;
 					for (i = 0; i < Len; i ++)
 					{
 						*pDst++ = *pSrc++;
@@ -357,17 +428,17 @@ OMX_ERRORTYPE AndroidAudioRender::WriteDevice(OMX_U8 *pBuffer, OMX_U32 nActuralL
 	if(PcmMode.nBitPerSample == 8) {
 		// Convert to U8
 		OMX_S32 i,Len;
-		OMX_U8 *pDst =(OMX_U8 *)pBuffer;
-		OMX_S8 *pSrc =(OMX_S8 *)pBuffer;
-		Len = nActuralLen;
+		OMX_U8 *pDst =(OMX_U8 *)pOut;
+		OMX_S8 *pSrc =(OMX_S8 *)pIn;
+		Len = nInSize;
 		for(i=0;i<Len;i++) {
 				*pDst++ = *pSrc++ + 128;
 		}
 	} else if(PcmMode.nBitPerSample == 24) {
 		OMX_S32 i,j,Len;
-		OMX_U8 *pDst =(OMX_U8 *)pBuffer;
-		OMX_U8 *pSrc =(OMX_U8 *)pBuffer;
-		Len = nActuralLen / (PcmMode.nBitPerSample>>3) / nChannelsOut;
+		OMX_U8 *pDst =(OMX_U8 *)pOut;
+		OMX_U8 *pSrc =(OMX_U8 *)pIn;
+		Len = nInSize / (PcmMode.nBitPerSample>>3) / nChannelsOut;
 		for(i=0;i<Len;i++) {
 			for(j=0;j<(OMX_S32)PcmMode.nChannels;j++) {
 				pDst[0] = pSrc[1];
@@ -376,18 +447,45 @@ OMX_ERRORTYPE AndroidAudioRender::WriteDevice(OMX_U8 *pBuffer, OMX_U32 nActuralL
 				pSrc+=3;
 			}
 		}
-		nActuralLen = Len * (nBitPerSampleOut>>3) * nChannelsOut;
+		nInSize = Len * (nBitPerSampleOut>>3) * nChannelsOut;
 	}
+
+    *nOutSize = nInSize;
+
+    return OMX_ErrorNone;
+}
+
+
+OMX_ERRORTYPE AndroidAudioRender::WriteDevice(OMX_U8 *pBuffer, OMX_U32 nActuralLen, OMX_U32 *nConsumedLen)
+{
+    if(mAudioSink == NULL)
+        return OMX_ErrorBadParameter;
 
     LOG_LOG("AndroidAudioRender write: %d\n", nActuralLen);
 
+#if (ANDROID_VERSION >= LOLLIPOP_50)
+    OMX_S32 ret;
+
+    ret = mAudioSink->write(pBuffer, nActuralLen, false);
+    *nConsumedLen = (ret > 0 ? ret : 0);
+#else
     mAudioSink->write(pBuffer, nActuralLen);
+    *nConsumedLen = nActuralLen;
+#endif
 
     if(nWrited == 0){
         mAudioSink->start();
         LOG_DEBUG("WRITE DEVICE START");
     }
-    nWrited += nActuralLenOrg;
+
+#if (ANDROID_VERSION >= LOLLIPOP_50)
+    nWrited += DataLenOut2In(*nConsumedLen);
+#else
+    nWrited += *nConsumedLen;
+#endif
+
+    if(*nConsumedLen < nActuralLen)
+        return OMX_ErrorNotComplete;
 
     return OMX_ErrorNone;
 }
@@ -411,6 +509,11 @@ OMX_ERRORTYPE AndroidAudioRender::DeviceDelay(OMX_U32 *nDelayLen)
         return OMX_ErrorNone;
 
 #if (ANDROID_VERSION >= LOLLIPOP_50)
+    if(nWrited > (nBufferSize + nPSize) * 2)
+        *nDelayLen = (nBufferSize + nPSize) * 2;
+    else
+        *nDelayLen = nWrited;
+
     AudioTimestamp ts;
     status_t res = mAudioSink->getTimestamp(ts);
     if (res == OK) {
@@ -470,17 +573,24 @@ OMX_ERRORTYPE AndroidAudioRender::ResetDevice()
 
     if (bOpened == OMX_FALSE) {
         OMX_U32 channelMask = 0;
+        OMX_U32 nFrameCount = 0;
         GetChannelMask(&channelMask);
 
-        LOG_DEBUG("ResetDevice Open AudioSink: SampleRate: %d, Channels: %d, nClockScale %x\n",
-                PcmMode.nSamplingRate, nChannelsOut, nClockScale);
+        LOG_DEBUG("ResetDevice Open AudioSink: SampleRate: %d, Channels: %d, nClockScale %x nFrameCount %d\n",
+                PcmMode.nSamplingRate, nChannelsOut, nClockScale, nFrameCount);
 
         OMX_U32 nSamplingRate = (OMX_U64)PcmMode.nSamplingRate * nClockScale / Q16_SHIFT;
 
         audio_output_flags_t flags = (audioType == OMX_AUDIO_CodingIEC937) ? AUDIO_OUTPUT_FLAG_DIRECT : AUDIO_OUTPUT_FLAG_NONE;
+#if (ANDROID_VERSION >= MARSH_MALLOW_600)
+        nFrameCount = calculateMinFrameCount(PcmMode.nSamplingRate);
 
         if(NO_ERROR != mAudioSink->open(nSamplingRate, nChannelsOut, \
-                    channelMask, format, DEFAULT_AUDIOSINK_BUFFERCOUNT, NULL, NULL, flags)) {
+                    channelMask, format, 0, NULL, NULL, flags, NULL, false, nFrameCount)) {
+#else
+        if(NO_ERROR != mAudioSink->open(nSamplingRate, nChannelsOut, \
+                    channelMask, format, 0, NULL, NULL, flags)) {
+#endif
             LOG_ERROR("Failed to open AudioOutput device.\n");
             return OMX_ErrorHardware;
         }
@@ -499,6 +609,44 @@ OMX_ERRORTYPE AndroidAudioRender::ResetDevice()
 
     nWrited = 0;
     return OMX_ErrorNone;
+}
+
+OMX_ERRORTYPE AndroidAudioRender::SetPlaybackRate(OMX_PTR rate)
+{
+
+#if (ANDROID_VERSION >= MARSH_MALLOW_600)
+
+    AudioPlaybackRate newRate;
+
+    if(rate) {
+        newRate = *(AudioPlaybackRate*)rate;
+        if (newRate.mSpeed == 0.f) {
+            newRate.mSpeed = mPlaybackSettings.mSpeed;
+            mPlaybackSettings = newRate;
+            return OMX_ErrorNone;
+        }
+    }
+    else {
+        mPlaybackSettings.mSpeed = (float)nClockScale / (float)Q16_SHIFT;
+        newRate = mPlaybackSettings;
+    }
+
+    if(mAudioSink != NULL) {
+        status_t err = mAudioSink->setPlaybackRate(newRate);
+        if (err != OK) {
+            LOG_ERROR("AndroidAudioRender setPlaybackRate fail\n");
+            return OMX_ErrorUndefined;
+        }
+        mPlaybackSettings = newRate;
+    }
+
+    return OMX_ErrorNone;
+
+#else
+
+    return SetDevice();
+
+#endif
 }
 
 OMX_ERRORTYPE AndroidAudioRender::AudioRenderDoExec2Pause()

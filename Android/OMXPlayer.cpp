@@ -100,6 +100,16 @@ static const char * CmdName[] = {
 
 
 #define COMMAND_QUEUE_SIZE 100
+#define MAX_RATE (2.0)
+#define MIN_RATE (0.1)
+#define MAX_TRICK_MODE_RATE (20)
+#define MIN_TRICK_FORWARD_RATE 2
+#define MIN_TRICK_REWIND_RATE -2
+#define IS_TRICK_PLAY(scale) ((scale) <= MIN_TRICK_REWIND_RATE * Q16_SHIFT || (scale) > MIN_TRICK_FORWARD_RATE * Q16_SHIFT)
+#define IS_TRICK_REWIND(scale) ((scale) <= MIN_TRICK_REWIND_RATE * Q16_SHIFT)
+#define IS_TRICK_FORWARD(scale) ((scale) > MIN_TRICK_FORWARD_RATE * Q16_SHIFT)
+#define IS_NORMAL_PLAY(scale) ((scale) >= MIN_RATE * Q16_SHIFT && (scale) <= MAX_RATE * Q16_SHIFT)
+
 
 static status_t GetFBResolution(
         OMX_U32  number,
@@ -288,10 +298,9 @@ OMXPlayer::~OMXPlayer()
     }
     fsl_osal_mutex_unlock((fsl_osal_mutex)queueLock);
 
-    if(queueLock != NULL){
-        fsl_osal_mutex_destroy(queueLock);
-        queueLock = NULL;
-    }
+    fsl_osal_mutex_destroy(queueLock);
+    queueLock = NULL;
+
     LogDeInit();
 
     LOG_DEBUG("OMXPlayer destructor %p ok.\n", gm);
@@ -841,6 +850,41 @@ bool OMXPlayer::isPlaying()
     return bPlaying;
 }
 
+#if (ANDROID_VERSION >= MARSH_MALLOW_600)
+status_t OMXPlayer::setSyncSettings(const AVSyncSettings &sync, float videoFpsHint)
+{
+    OMX_GraphManager* gm = (OMX_GraphManager*)player;
+    GM_AV_SYNC_SETTING sSetting;
+    OMX_S32 fps = 0;
+    if(gm == NULL)
+        return BAD_VALUE;
+
+    fsl_osal_memset(&sSetting, 0, sizeof(GM_AV_SYNC_SETTING));
+    sSetting.source = (GM_AV_SOURCE)sync.mSource;
+    sSetting.audioAdjustMode = (GM_AV_AUDIO_ADJUST_MODE)sync.mAudioAdjustMode;
+    sSetting.tolerance = (OMX_U32)sync.mTolerance;
+    fps = (OMX_S32)(videoFpsHint*1000);
+    LOG_DEBUG("OMXPlayer::setSyncSettings source=%d,audio=%d,to=%d,fps=%f\n",
+        sSetting.source,sSetting.audioAdjustMode,sSetting.tolerance,videoFpsHint);
+    gm->setSyncSetting(gm,&sSetting,fps);
+    return NO_ERROR;
+}
+status_t OMXPlayer::getSyncSettings(AVSyncSettings *sync, float *videoFps)
+{
+    OMX_GraphManager* gm = (OMX_GraphManager*)player;
+    OMX_S32 fps = 0;
+    GM_AV_SYNC_SETTING sSetting;
+    gm->getSyncSetting(gm,&sSetting,&fps);
+
+    fsl_osal_memcpy(sync, &sSetting, sizeof(GM_AV_SYNC_SETTING));
+    *videoFps = (float)fps/1000;
+    LOG_DEBUG("OMXPlayer::getSyncSettings source=%d,audio=%d,to=%d,fps=%f\n",
+        sSetting.source,sSetting.audioAdjustMode,sSetting.tolerance,*videoFps);
+
+    return NO_ERROR;
+}
+#endif
+
 status_t OMXPlayer::seekTo(int msec)
 {
     LOG_DEBUG("OMXPlayer seekTo %d\n", msec/1000);
@@ -969,33 +1013,68 @@ status_t OMXPlayer::setVideoScalingMode(int32_t mode) {
     return OK;
 }
 
+
 status_t OMXPlayer::getTrackInfo(Parcel *reply) {
 
     OMX_GraphManager* gm = (OMX_GraphManager*)player;
     if(gm == NULL)
         return BAD_VALUE;
-
+    OMX_U32 nVideoTrackNum = gm->GetVideoTrackNum(gm);
     OMX_U32 nAudioTrackNum = gm->GetAudioTrackNum(gm);
     OMX_U32 nSubtitleTrackNum = gm->GetSubtitleTrackNum(gm);
-    reply->writeInt32(nAudioTrackNum + nSubtitleTrackNum);
+    reply->writeInt32(nVideoTrackNum + nAudioTrackNum + nSubtitleTrackNum);
+
+    OMX_S32 fields = 2;
+    #if(ANDROID_VERSION >= MARSH_MALLOW_600)
+        fields = 3;
+    #endif
 
     OMX_U32 i;
+    for (i= 0; i < nVideoTrackNum; i ++) {
+        GM_VIDEO_TRACK_INFO sInfo;
+        if(!gm->GetVideoTrackInfo(gm,i,&sInfo))
+            continue;
+
+        reply->writeInt32(fields); // 2 fields
+        reply->writeInt32(MEDIA_TRACK_TYPE_VIDEO);
+
+        #if(ANDROID_VERSION >= MARSH_MALLOW_600)
+        reply->writeString16(String16((const char*)sInfo.mime));
+        #endif
+
+        reply->writeString16(String16((const char*)sInfo.lanuage));
+        LOG_DEBUG("OMXPlayer::getTrackInfo: video mime=%s,lang=%s\n",sInfo.mime,sInfo.lanuage);
+    }
+
     for (i= 0; i < nAudioTrackNum; i ++) {
-        reply->writeInt32(2); // 2 fields
+        GM_AUDIO_TRACK_INFO sInfo;
+        if(!gm->GetAudioTrackInfo(gm,i,&sInfo))
+            continue;
+        reply->writeInt32(fields); // 2 fields
         reply->writeInt32(MEDIA_TRACK_TYPE_AUDIO);
 
-        const char *lang;
-        lang = gm->GetAudioTrackName(gm, i);
-        reply->writeString16(String16(lang));
+        #if(ANDROID_VERSION >= MARSH_MALLOW_600)
+        reply->writeString16(String16((const char*)sInfo.mime));
+        #endif
+
+        reply->writeString16(String16((const char*)sInfo.lanuage));
+        LOG_DEBUG("OMXPlayer::getTrackInfo: audio mime=%s,lang=%s\n",sInfo.mime,sInfo.lanuage);
     }
 
     for (i = 0; i < nSubtitleTrackNum; i ++) {
-        reply->writeInt32(2); // 2 fields
+        GM_SUBTITLE_TRACK_INFO sInfo;
+        if(!gm->GetSubtitleTrackInfo(gm,i,&sInfo))
+            continue;
+
+        reply->writeInt32(fields); // 2 fields
         reply->writeInt32(MEDIA_TRACK_TYPE_TIMEDTEXT);
 
-        const char *lang;
-        lang = gm->GetSubtitleTrackName(gm, i);
-        reply->writeString16(String16(lang));
+        #if(ANDROID_VERSION >= MARSH_MALLOW_600)
+        reply->writeString16(String16((const char*)sInfo.mime));
+        #endif
+
+        reply->writeString16(String16((const char*)sInfo.lanuage));
+        LOG_DEBUG("OMXPlayer::getTrackInfo: subtitle mime=%s,lang=%s\n",sInfo.mime,sInfo.lanuage);
     }
 
     return OK;
@@ -1072,14 +1151,18 @@ status_t OMXPlayer::invoke(
         case INVOKE_ID_SELECT_TRACK:
         {
             int trackIndex = request.readInt32();
+            int videoTrackCnt = gm->GetVideoTrackNum(gm);
             int audioTrackCnt = gm->GetAudioTrackNum(gm);
-            if(trackIndex < audioTrackCnt) {
+            LOG_DEBUG("INVOKE_ID_SELECT_TRACK index=%d",trackIndex);
+            if(trackIndex < videoTrackCnt){
+                break;//not supported now
+            }else if(trackIndex < videoTrackCnt + audioTrackCnt) {
                 LOG_DEBUG ("select audio track %d\n", trackIndex);
-                gm->SelectAudioTrack(gm, trackIndex);
+                gm->SelectAudioTrack(gm, trackIndex - videoTrackCnt);
             }
             else {
                 LOG_DEBUG ("select subtitle track %d\n", trackIndex - audioTrackCnt);
-                gm->SelectSubtitleTrack(gm, trackIndex - audioTrackCnt);
+                gm->SelectSubtitleTrack(gm, trackIndex - audioTrackCnt - videoTrackCnt);
             }
             break;
         }
@@ -1087,8 +1170,11 @@ status_t OMXPlayer::invoke(
         case INVOKE_ID_UNSELECT_TRACK:
         {
             int trackIndex = request.readInt32();
-            if(trackIndex < (int)gm->GetAudioTrackNum(gm)) {
-                ALOGE("Deselect an audio track (%d) is not supported", trackIndex);
+            int videoTrackCnt = gm->GetVideoTrackNum(gm);
+            int audioTrackCnt = gm->GetAudioTrackNum(gm);
+            LOG_DEBUG("INVOKE_ID_UNSELECT_TRACK index=%d",trackIndex);
+            if(trackIndex < videoTrackCnt + audioTrackCnt) {
+                ALOGE("Deselect an video/audio track (%d) is not supported", trackIndex);
                 return UNKNOWN_ERROR;
             }
             else {
@@ -1106,10 +1192,10 @@ status_t OMXPlayer::invoke(
             int speed = request.readInt32();
             LOG_DEBUG("Set play speed to: %d\n",speed);
 
-            if(OMX_TRUE != gm->setPlaySpeed(gm, speed))
+            if(NO_ERROR != setPlaySpeed(speed))
                 return UNKNOWN_ERROR;
 
-            if(OMX_TRUE != gm->getPlaySpeed(gm, &speed))
+            if(OMX_TRUE != gm->getPlaySpeed(gm, &speed, NULL, NULL))
                 return UNKNOWN_ERROR;
 
             LOG_DEBUG("get play speed : %d\n", speed);
@@ -1123,11 +1209,24 @@ status_t OMXPlayer::invoke(
         case INVOKE_ID_GET_SELECTED_TRACK:
         {
             int type = request.readInt32();
-            int index = 0;
-            if(type == MEDIA_TRACK_TYPE_AUDIO)
+            int index = -1;
+            int videoTrackCnt = gm->GetVideoTrackNum(gm);
+            int audioTrackCnt = gm->GetAudioTrackNum(gm);
+            int subtitleTrackCnt = gm->GetSubtitleTrackNum(gm);
+            LOG_DEBUG("INVOKE_ID_GET_SELECTED_TRACK videocnt=%d,audioCnt=%d,subtitleCnt=%d\n",
+                videoTrackCnt,audioTrackCnt,subtitleTrackCnt);
+            if(type == MEDIA_TRACK_TYPE_VIDEO && videoTrackCnt > 0){
+                index = gm->GetCurVideoTrack(gm);
+            }else if(type == MEDIA_TRACK_TYPE_AUDIO && audioTrackCnt > 0){
                 index = gm->GetCurAudioTrack(gm);
-            else if(type == MEDIA_TRACK_TYPE_TIMEDTEXT || type == MEDIA_TRACK_TYPE_SUBTITLE)
+                if(index >= 0)
+                    index += videoTrackCnt;
+            }else if((type == MEDIA_TRACK_TYPE_TIMEDTEXT || type == MEDIA_TRACK_TYPE_SUBTITLE) && 
+                subtitleTrackCnt > 0){
                 index = gm->GetSubtitleCurTrack(gm);
+                if(index >= 0)
+                    index += videoTrackCnt + audioTrackCnt;
+            }
 
             LOG_DEBUG("get play selected track type %d,index %d\n", type,index);
 
@@ -1256,17 +1355,85 @@ status_t OMXPlayer::selectAudioTrack(int index)
     return NO_ERROR;
 }
 
+#if (ANDROID_VERSION >= MARSH_MALLOW_600)
+status_t OMXPlayer::setPlaybackSettings(const AudioPlaybackRate &rate)
+{
+    // do some cursory validation of the settings here. audio modes are only validated when set on the audiosink.
+    if ((rate.mSpeed != 0.f && rate.mSpeed < AUDIO_TIMESTRETCH_SPEED_MIN)
+            || rate.mSpeed > AUDIO_TIMESTRETCH_SPEED_MAX
+            || rate.mPitch < AUDIO_TIMESTRETCH_SPEED_MIN
+            || rate.mPitch > AUDIO_TIMESTRETCH_SPEED_MAX) {
+        return BAD_VALUE;
+    }
+
+    OMX_GraphManager* gm = (OMX_GraphManager*)player;
+    AudioPlaybackRate tmp = rate;
+    OMX_S32 scale = rate.mSpeed * Q16_SHIFT;
+
+    if(gm == NULL)
+        return 0;
+
+    LOG_DEBUG("setPlaybackSettings speed: %f\n", rate.mSpeed);
+
+    if(OMX_TRUE != gm->setAVPlaySpeed(gm, scale, &tmp, sizeof(AudioPlaybackRate)))
+        return UNKNOWN_ERROR;
+
+    if(0.f == rate.mSpeed) {
+        gm->pause(gm);
+        return NO_ERROR;
+    }
+
+    gm->resume(gm);
+    bPlaying = true;
+
+    return NO_ERROR;
+}
+
+status_t OMXPlayer::getPlaybackSettings(AudioPlaybackRate *rate)
+{
+    OMX_GraphManager* gm = (OMX_GraphManager*)player;
+    int speed;
+    OMX_U32 nSize;
+
+    if(gm == NULL)
+        return 0;
+
+    gm->getPlaySpeed(gm, &speed, rate, &nSize);
+
+    if( !bPlaying) {
+        rate->mSpeed = 0.f;
+    }
+
+    LOG_DEBUG("OMXPlayer::getPlaybackSettings speed: %f\n", rate->mSpeed);
+    return NO_ERROR;
+}
+
+#endif
+
 status_t OMXPlayer::setPlaySpeed(int speed)
 {
     OMX_GraphManager* gm = (OMX_GraphManager*)player;
+    OMX_U32 playMode;
 
     if(gm == NULL)
         return 0;
 
     LOG_DEBUG("Set play speed to: %d\n",speed);
+    if(speed < -(MAX_TRICK_MODE_RATE * Q16_SHIFT) || speed > (MAX_TRICK_MODE_RATE * Q16_SHIFT))
+        return BAD_VALUE;
+    if(speed < 0 && speed > MIN_TRICK_REWIND_RATE * Q16_SHIFT)
+        speed = MIN_TRICK_REWIND_RATE * Q16_SHIFT;
+    if(speed >= 0 && speed < (OMX_S32)(MIN_RATE * Q16_SHIFT))
+        speed = MIN_RATE * Q16_SHIFT;
 
-    if(OMX_TRUE != gm->setPlaySpeed(gm, speed))
-        return UNKNOWN_ERROR;
+    if(IS_NORMAL_PLAY(speed)) {
+        if(OMX_TRUE != gm->setAVPlaySpeed(gm, speed, NULL, 0))
+            return UNKNOWN_ERROR;
+    }
+    else {
+        if(OMX_TRUE != gm->setKeyFramePlaySpeed(gm, speed, NULL, 0))
+            return UNKNOWN_ERROR;
+    }
 
     return NO_ERROR;
 }
@@ -1798,8 +1965,9 @@ status_t OMXPlayer::CheckSurfaceRegion()
             if(left != sLeft || right != sRight || top != sTop || bottom != sBottom) {
                 printf("Surface region changed: left: %d, right: %d, top: %d, bottom: %d, rot: %d\n",
                         left, right, top, bottom, rot);
-                if(NO_ERROR == setVideoDispRect(top, left, bottom, right))
+                if(NO_ERROR == setVideoDispRect(top, left, bottom, right)){
                     sLeft = left; sRight = right; sTop = top; sBottom = bottom;
+                }
             }
 
             if(rot != sRot) {
@@ -1865,7 +2033,7 @@ status_t OMXPlayer::getParameter(int key, Parcel *reply)
             if(gm == NULL)
                 return BAD_VALUE;
 
-            if(OMX_TRUE != gm->getPlaySpeed(gm, &speed))
+            if(OMX_TRUE != gm->getPlaySpeed(gm, &speed, NULL, NULL))
                 return UNKNOWN_ERROR;
 
             LOG_DEBUG("get play speed : %d\n", speed);
@@ -2018,6 +2186,9 @@ URL_TYPE OMXPlayerType::IsSupportedUrl(const char *url)
         return URL_NOT_SUPPORT;
 
     if(!fsl_osal_strncasecmp(url + fsl_osal_strlen(url) - 4, ".ogg", 4))
+        return URL_NOT_SUPPORT;
+
+    if(!fsl_osal_strncasecmp(url + fsl_osal_strlen(url) - 5, ".html", 5))
         return URL_NOT_SUPPORT;
 
     if (!fsl_osal_strncasecmp(url, "http://", 7)){

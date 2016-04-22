@@ -1,5 +1,5 @@
 /**
- *  Copyright (c) 2011-2013, Freescale Semiconductor Inc.,
+ *  Copyright (c) 2011-2015, Freescale Semiconductor Inc.,
  *  All Rights Reserved.
  *
  *  The following programs are the sole property of Freescale Semiconductor Inc.,
@@ -21,6 +21,7 @@ extern "C" {
 enum video_source_gm {
     VIDEO_SOURCE_DEFAULT = 0,
     VIDEO_SOURCE_CAMERA = 1,
+    VIDEO_SOURCE_SURFACE = 2,
 
     VIDEO_SOURCE_LIST_END  // must be last - used to validate audio source type
 };
@@ -60,8 +61,9 @@ enum audio_encoder_gm {
     AUDIO_ENCODER_AAC = 3,
     AUDIO_ENCODER_AAC_PLUS = 4,
     AUDIO_ENCODER_EAAC_PLUS = 5,
-    AUDIO_ENCODER_MP3 = 6,
-    AUDIO_ENCODER_PCM16 = 7,
+    AUDIO_ENCODER_VORBIS = 6,
+    AUDIO_ENCODER_MP3 = 7,
+    AUDIO_ENCODER_PCM16 = 8,
     AUDIO_ENCODER_LIST_END // must be the last - used to validate the audio encoder type
 };
 
@@ -125,6 +127,7 @@ struct OMX_Recorder
 	OMX_BOOL (*setParamVideoTimeScale)(OMX_Recorder *h, OMX_S32 timeScale);
 	OMX_BOOL (*setParamTimeLapseEnable)(OMX_Recorder *h, OMX_S32 timeLapseEnable);
 	OMX_BOOL (*setParamTimeBetweenTimeLapseFrameCapture)(OMX_Recorder *h, OMX_S64 timeUs);
+    OMX_BOOL (*setParamCaptureFps)(OMX_Recorder *h, OMX_S32 timeUs);
 	OMX_BOOL (*registerEventHandler)(OMX_Recorder *h, OMX_PTR context, RECORDER_EVENTHANDLER handler);
 	OMX_BOOL (*prepare)(OMX_Recorder *h);
 	OMX_BOOL (*start)(OMX_Recorder *h);
@@ -136,6 +139,11 @@ struct OMX_Recorder
 	OMX_BOOL (*getMediaTime)(OMX_Recorder *h, OMX_TICKS *pMediaTime);
 	OMX_BOOL (*deleteIt)(OMX_Recorder *h);
 	OMX_BOOL (*setClient)(OMX_Recorder *h, const OMX_U16* clientName, OMX_S32 clientUID);
+	OMX_BOOL (*setPackageName)(OMX_Recorder *h, const OMX_U16* packageName);
+	OMX_BOOL (*getBufferProducer)(OMX_Recorder *h, OMX_PTR *ppBufferProducer);
+	OMX_BOOL (*setInputSurface)(OMX_Recorder *h, OMX_PTR pInputSurface);
+    OMX_BOOL (*setAndroidVersionString)(OMX_Recorder *h, OMX_U8* str, OMX_U32 length);
+
 
 	void* pData;
 };

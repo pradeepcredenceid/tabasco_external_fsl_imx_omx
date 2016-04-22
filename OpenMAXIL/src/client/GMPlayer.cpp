@@ -442,7 +442,50 @@ const VIDEO_RENDER_MAP_ENTRY GMPlayer::VideoRenderRoleTable[OMX_VIDEO_RENDER_NUM
     {OMX_VIDEO_RENDER_OVERLAY,   "video_render.overlay"},
 };
 
+typedef struct {
+    OMX_U32 index;
+    const char* mime;
+}mime_table;
+#define AUDIO_MIMETYPE_UNKNOWN "audio/"
+#define VIDEO_MIMETYPE_UNKNOWN "video/"
+#define THUBTITLE_MIMETYPE_UNKNOWN "text/"
+//mime type should be equal to strings in mediaDef.cpp
+static mime_table video_mime_table[] = {
+    {OMX_VIDEO_CodingMPEG2,"video/mpeg2"},
+    {OMX_VIDEO_CodingH263, "video/3gpp"},
+    {OMX_VIDEO_CodingMPEG4, "video/mp4v-es"},
+    {OMX_VIDEO_CodingWMV, "video/x-ms-wmv"},
+    {OMX_VIDEO_CodingRV, "video/rv"},
+    {OMX_VIDEO_CodingAVC,"video/avc"},
+    {OMX_VIDEO_CodingMJPEG,"video/x-motion-jpeg"},
+    {OMX_VIDEO_CodingVP8, "video/x-vnd.on2.vp8"},
+    {OMX_VIDEO_CodingVP9, "video/x-vnd.on2.vp9"},
+    {OMX_VIDEO_CodingHEVC, "video/hevc"}
+};
 
+#define AUDIO_MIMETYPE_G711_ALAW "audio/g711-alaw"
+#define AUDIO_MIMETYPE_G711_MLAW "audio/g711-mlaw"
+#define AUDIO_MIMETYPE_AMR_NB "audio/3gpp"
+#define AUDIO_MIMETYPE_AMR_WB "audio/amr-wb"
+#define ADUIO_MIMETYPE_AAC_ADTS "audio/aac-adts";
+
+static mime_table audio_mime_table[] = {
+    {OMX_AUDIO_CodingPCM,"audio/raw"},
+    {OMX_AUDIO_CodingADPCM, "audio/raw"},
+    {OMX_AUDIO_CodingAAC, "audio/mp4a-latm"},
+    {OMX_AUDIO_CodingMP3,  "audio/mpeg"},
+    {OMX_AUDIO_CodingVORBIS, "audio/vorbis"},
+    {OMX_AUDIO_CodingWMA,"audio/x-ms-wma"},
+    {OMX_AUDIO_CodingRA,"audio/x-pn-realaudio"},
+    {OMX_AUDIO_CodingFLAC,"audio/flac"},
+    {OMX_AUDIO_CodingAC3,"audio/ac3"},
+    {OMX_AUDIO_CodingEC3, "audio/eac3"},
+    {OMX_AUDIO_CodingOPUS, "audio/opus"},
+};
+
+#define SUBTITLE_MIMETYPE_3GPP "text/3gpp-tt"
+#define SUBTITLE_MIMETYPE_SUBRIP "application/x-subrip"
+#define SUBTITLE_MIMETYPE_SSA "text/x-ssa"
 OMX_ERRORTYPE GMPlayer::Init()
 {
     OMX_ERRORTYPE ret = OMX_ErrorNone;
@@ -494,13 +537,13 @@ OMX_ERRORTYPE GMPlayer::Init()
         goto err;
     }
 
-    AudioTrackInfo = FSL_NEW(List<sAUDIOTRACKINFO>, ());
+    AudioTrackInfo = FSL_NEW(List<GM_AUDIO_TRACK_INFO>, ());
     if(AudioTrackInfo == NULL) {
         ret = OMX_ErrorInsufficientResources;
         goto err;
     }
 
-    SubtitleTrackInfo = FSL_NEW(List<sSUBTITLETRACKINFO>, ());
+    SubtitleTrackInfo = FSL_NEW(List<GM_SUBTITLE_TRACK_INFO>, ());
     if(SubtitleTrackInfo == NULL) {
         ret = OMX_ErrorInsufficientResources;
         goto err;
@@ -612,7 +655,6 @@ OMX_ERRORTYPE GMPlayer::Reset()
     bUseFakeAudioSink = OMX_FALSE;
     MediaDuration = 0;
     MediaStartTime = 0;
-    DelayedSpeed = 0;
     bError = OMX_FALSE;
     bBuffering = OMX_FALSE;
     bLowLatency = OMX_FALSE;//only enable it for rtp/udp streaming
@@ -630,15 +672,20 @@ OMX_ERRORTYPE GMPlayer::Reset()
     bVideoDirectRendering = OMX_FALSE;
     bWaitForVideoSurface = OMX_FALSE;
     mSurfaceType = OMX_VIDEO_SURFACE_NONE;
+    playbackMode = NORMAL_MODE;
 
     OMX_INIT_STRUCT(&sOutputMode, OMX_CONFIG_OUTPUTMODE);
-    OMX_INIT_STRUCT(&sVideoRect, OMX_CONFIG_OUTPUTMODE);
+    OMX_INIT_STRUCT(&sVideoRect, OMX_CONFIG_RECTTYPE);
+    OMX_INIT_STRUCT(&DelayedRate, OMX_TIME_CONFIG_PLAYBACKTYPE);
     eScreen = SCREEN_NONE;
     bRotate = OMX_FALSE;
     bAudioPassthrough = OMX_FALSE;
     bPreLoaded = OMX_FALSE;
     bSetDelayedSurface = OMX_FALSE;
     bSeeking = OMX_FALSE;
+
+    fsl_osal_memset(&sSyncSetting,0,sizeof(GM_AV_SYNC_SETTING));
+    nFps = 0;
 
     if(Content != NULL)
         FSL_FREE(Content);
@@ -903,6 +950,9 @@ OMX_ERRORTYPE GMPlayer::Start()
         return OMX_ErrorNone;
     }
 
+    if(Clock != NULL)
+        Clock->StateTransUpWard(OMX_StateExecuting);
+
     if(bHasAudio == OMX_TRUE)
         AudioRender->StateTransUpWard(OMX_StateExecuting);
     if(bHasVideo == OMX_TRUE)
@@ -1004,7 +1054,7 @@ OMX_ERRORTYPE GMPlayer::Stop()
     }
 
     OMX_U32 nAudioTrackCnt;
-    sAUDIOTRACKINFO *pTrackInfo = NULL;
+    GM_AUDIO_TRACK_INFO *pTrackInfo = NULL;
     nAudioTrackCnt = AudioTrackInfo->GetNodeCnt();
     for (i = nAudioTrackCnt - 1 ; i >= 0; i --)
     {
@@ -1015,7 +1065,7 @@ OMX_ERRORTYPE GMPlayer::Stop()
     }
 
     OMX_U32 nSubtitleTrackCnt;
-    sSUBTITLETRACKINFO *pSubTrackInfo = NULL;
+    GM_SUBTITLE_TRACK_INFO *pSubTrackInfo = NULL;
     nSubtitleTrackCnt = SubtitleTrackInfo->GetNodeCnt();
     for (i = nSubtitleTrackCnt - 1 ; i >= 0; i --)
     {
@@ -1092,10 +1142,10 @@ OMX_ERRORTYPE GMPlayer::Resume()
     }
 
 
-    if(DelayedSpeed != 0) {
-        LOG_DEBUG("use DelayedSpeed %f", (float)DelayedSpeed/ (float)Q16_SHIFT );
-        SpeedControl(DelayedSpeed);
-        DelayedSpeed = 0;
+    if(DelayedRate.xScale != 0) {
+        LOG_DEBUG("use DelayedRate %f", (float)DelayedRate.xScale/ (float)Q16_SHIFT );
+        OMX_SetConfig(Clock->hComponent, OMX_IndexConfigPlaybackRate, &DelayedRate);
+        DelayedRate.xScale = 0;
     }
 
     if(Clock != NULL)
@@ -1164,6 +1214,7 @@ OMX_ERRORTYPE GMPlayer::Seek(
         sCur.nPortIndex = OMX_ALL;
         OMX_GetConfig(Clock->hComponent, OMX_IndexConfigTimeCurrentMediaTime, &sCur);
         MediaStartTime = sCur.nTimestamp;
+        Clock->StateTransDownWard(OMX_StatePause);
     }
 
     LOG_DEBUG("GMPlayer Seek to %lld ok\n", position);
@@ -1175,10 +1226,12 @@ OMX_ERRORTYPE GMPlayer::Seek(
     return ret;
 }
 
-OMX_ERRORTYPE GMPlayer::SetPlaySpeed(
-        OMX_S32 Scale)
+OMX_ERRORTYPE GMPlayer::SetKeyFramePlaySpeed(
+        OMX_S32 Scale, OMX_PTR extraData, OMX_U32 extraDataSize)
 {
     OMX_TIME_CONFIG_SCALETYPE sScale;
+    OMX_TIME_CONFIG_PLAYBACKTYPE sPlaybackRate;
+    OMX_ERRORTYPE ret = OMX_ErrorNone;
     OMX_S32 CurScale;
 
     if(bStreamingSource == OMX_TRUE)
@@ -1196,30 +1249,11 @@ OMX_ERRORTYPE GMPlayer::SetPlaySpeed(
         return OMX_ErrorUndefined;
     }
 
-    printf("Set Player Speed to %f.\n", (float)Scale / (float)Q16_SHIFT);
+    printf("Set Player Key Frame Speed to %f.\n", (float)Scale / (float)Q16_SHIFT);
 
     if(bHasVideo != OMX_TRUE) {
-        if(!IS_NORMAL_PLAY(Scale)){
-            fsl_osal_mutex_unlock(Lock);
-            return OMX_ErrorIncorrectStateOperation;
-        }
-    }
-    else {
-        if(Scale < -(MAX_TRICK_MODE_RATE * Q16_SHIFT) || Scale > (MAX_TRICK_MODE_RATE * Q16_SHIFT)) {
-            fsl_osal_mutex_unlock(Lock);
-            return OMX_ErrorIncorrectStateOperation;
-        }
-        if(Scale < 0 && Scale > MIN_TRICK_REWIND_RATE * Q16_SHIFT)
-            Scale = MIN_TRICK_REWIND_RATE * Q16_SHIFT;
-        if(Scale >= 0 && Scale < (OMX_S32)(MIN_RATE * Q16_SHIFT))
-            Scale = MIN_RATE * Q16_SHIFT;
-        if(Scale > (OMX_S32)(MAX_RATE * Q16_SHIFT) && Scale < MIN_TRICK_FORWARD_RATE * Q16_SHIFT)
-            Scale = MAX_RATE * Q16_SHIFT;
-    }
-
-    if(bAudioPassthrough == OMX_TRUE && IS_NORMAL_PLAY(Scale) && Scale != Q16_SHIFT){
         fsl_osal_mutex_unlock(Lock);
-        return OMX_ErrorNone;
+        return OMX_ErrorIncorrectStateOperation;
     }
 
     OMX_INIT_STRUCT(&sScale, OMX_TIME_CONFIG_SCALETYPE);
@@ -1232,31 +1266,38 @@ OMX_ERRORTYPE GMPlayer::SetPlaySpeed(
     }
 
     OMX_BOOL seamless;
+    OMX_PLAYBACK_MODE playbackModePre = playbackMode;
 
-    if(IS_NORMAL_PLAY(CurScale) && IS_NORMAL_PLAY(Scale))
+    if(Scale > 0)
+        playbackMode = FAST_FORWARD_TRICK_MODE;
+    else
+        playbackMode = FAST_BACKWARD_TRICK_MODE;
+
+    OMX_INIT_STRUCT(&sPlaybackRate, OMX_TIME_CONFIG_PLAYBACKTYPE);
+    sPlaybackRate.ePlayMode = playbackMode;
+    sPlaybackRate.pPrivateData = extraData;
+    sPlaybackRate.nPrivateDataSize = extraDataSize;
+    sPlaybackRate.xScale = Scale;
+
+    if(playbackModePre == FAST_BACKWARD_TRICK_MODE && playbackMode == FAST_BACKWARD_TRICK_MODE)
         seamless = OMX_TRUE;
-    else if(IS_TRICK_REWIND(CurScale) && IS_TRICK_REWIND(Scale))
-        seamless = OMX_TRUE;
-    else if(IS_TRICK_FORWARD(CurScale) && IS_TRICK_FORWARD(Scale))
+    else if(playbackModePre == FAST_FORWARD_TRICK_MODE && playbackMode == FAST_FORWARD_TRICK_MODE)
         seamless = OMX_TRUE;
     else
         seamless = OMX_FALSE;
 
     if(seamless == OMX_TRUE) {
         if(State == GM_STATE_PAUSE) {
-            LOG_DEBUG("save DelayedSpeed %f", (float)DelayedSpeed / (float)Q16_SHIFT);
-            DelayedSpeed = Scale;
+            LOG_DEBUG("save DelayedRate %f", (float)DelayedRate.xScale / (float)Q16_SHIFT);
+            DelayedRate = sPlaybackRate;
             fsl_osal_mutex_unlock(Lock);
             return OMX_ErrorNone;
         }
-        SpeedControl(Scale);
+        OMX_SetConfig(Clock->hComponent, OMX_IndexConfigPlaybackRate, &sPlaybackRate);
     }
     else {
-        DelayedSpeed = 0;
-        if(IS_TRICK_PLAY(CurScale) && IS_NORMAL_PLAY(Scale))
-            Trick2Normal(Scale);
-        else // normal -> trick or fast rewind <-> fast forward
-            Normal2Trick(Scale);
+        DelayedRate.xScale = 0;
+        Normal2Trick(sPlaybackRate); // fast rewind <-> fast forward
     }
 
     fsl_osal_mutex_unlock(Lock);
@@ -1264,18 +1305,93 @@ OMX_ERRORTYPE GMPlayer::SetPlaySpeed(
     return OMX_ErrorNone;
 }
 
-OMX_ERRORTYPE GMPlayer::GetPlaySpeed(
-        OMX_S32 *Scale)
+OMX_ERRORTYPE GMPlayer::SetAVPlaySpeed(
+        OMX_S32 Scale, OMX_PTR extraData, OMX_U32 extraDataSize)
 {
     OMX_TIME_CONFIG_SCALETYPE sScale;
-    OMX_INIT_STRUCT(&sScale, OMX_TIME_CONFIG_SCALETYPE);
+    OMX_TIME_CONFIG_PLAYBACKTYPE sPlaybackRate;
+    OMX_S32 CurScale;
+    OMX_ERRORTYPE ret = OMX_ErrorNone;
 
-    if(DelayedSpeed != 0)
-        *Scale = DelayedSpeed;
-    else{
-        OMX_GetConfig(Clock->hComponent, OMX_IndexConfigTimeScale, &sScale);
-        *Scale = sScale.xScale;
+    if(bStreamingSource == OMX_TRUE || bLiveSource == OMX_TRUE)
+        return OMX_ErrorNotImplemented;
+
+    if(State == GM_STATE_STOP)
+        return OMX_ErrorIncorrectStateOperation;
+
+    if(bAudioPassthrough == OMX_TRUE && Scale != Q16_SHIFT)
+        return OMX_ErrorNone;
+
+    fsl_osal_mutex_lock(Lock);
+    printf("Set Player AV Speed to %f.\n", (float)Scale / (float)Q16_SHIFT);
+
+    OMX_INIT_STRUCT(&sScale, OMX_TIME_CONFIG_SCALETYPE);
+    OMX_GetConfig(Clock->hComponent, OMX_IndexConfigTimeScale, &sScale);
+    CurScale = sScale.xScale;
+    if(Scale == CurScale) {
+        printf("Setting same speed scale.\n");
+        fsl_osal_mutex_unlock(Lock);
+        return OMX_ErrorNone;
     }
+
+    OMX_BOOL seamless;
+    OMX_PLAYBACK_MODE playbackModePre = playbackMode;
+    playbackMode = NORMAL_MODE;
+
+    OMX_INIT_STRUCT(&sPlaybackRate, OMX_TIME_CONFIG_PLAYBACKTYPE);
+    sPlaybackRate.ePlayMode = playbackMode;
+    sPlaybackRate.pPrivateData = extraData;
+    sPlaybackRate.xScale = Scale;
+    sPlaybackRate.nPrivateDataSize = extraDataSize;
+
+    if(playbackModePre == NORMAL_MODE)
+        seamless = OMX_TRUE;
+    else
+        seamless = OMX_FALSE;
+
+    if(seamless == OMX_TRUE) {
+        if(State == GM_STATE_PAUSE) {
+            LOG_DEBUG("save DelayedRate %f", (float)DelayedRate.xScale / (float)Q16_SHIFT);
+            DelayedRate = sPlaybackRate;
+            fsl_osal_mutex_unlock(Lock);
+            return OMX_ErrorNone;
+        }
+        OMX_SetConfig(Clock->hComponent, OMX_IndexConfigPlaybackRate, &sPlaybackRate);
+    }
+    else {
+        DelayedRate.xScale = 0;
+        Trick2Normal(sPlaybackRate);
+    }
+
+    fsl_osal_mutex_unlock(Lock);
+
+    return OMX_ErrorNone;
+}
+
+
+OMX_ERRORTYPE GMPlayer::GetPlaySpeed(
+        OMX_S32 *Scale, OMX_PTR extraData, OMX_U32 *extraDataSize)
+{
+    if(DelayedRate.xScale != 0) {
+        *Scale = DelayedRate.xScale;
+        if(DelayedRate.pPrivateData && extraData) {
+            fsl_osal_memcpy(extraData, DelayedRate.pPrivateData, DelayedRate.nPrivateDataSize);
+            *extraDataSize = DelayedRate.nPrivateDataSize;
+        }
+    }
+    else if(Clock){
+        OMX_TIME_CONFIG_PLAYBACKTYPE sPlayback;
+        OMX_INIT_STRUCT(&sPlayback, OMX_TIME_CONFIG_PLAYBACKTYPE);
+        OMX_GetConfig(Clock->hComponent, OMX_IndexConfigPlaybackRate, &sPlayback);
+        *Scale = sPlayback.xScale;
+        if(sPlayback.pPrivateData && extraData) {
+            fsl_osal_memcpy(extraData, sPlayback.pPrivateData ,sPlayback.nPrivateDataSize);
+            *extraDataSize = sPlayback.nPrivateDataSize;
+        }
+    }
+    else
+        return OMX_ErrorNotImplemented;
+
     return OMX_ErrorNone;
 }
 
@@ -1760,16 +1876,16 @@ OMX_ERRORTYPE GMPlayer::SysEventHandler(
                     else
                         break;
 
-                    OMX_TIME_CONFIG_SCALETYPE sScale;
-                    OMX_INIT_STRUCT(&sScale, OMX_TIME_CONFIG_SCALETYPE);
+                    OMX_TIME_CONFIG_PLAYBACKTYPE sPlayback;
+                    OMX_INIT_STRUCT(&sPlayback, OMX_TIME_CONFIG_PLAYBACKTYPE);
                     if(Clock != NULL) {
-                        OMX_GetConfig(Clock->hComponent, OMX_IndexConfigTimeScale, &sScale);
-                        if(bVideoEos == OMX_TRUE && sScale.xScale >= MIN_TRICK_FORWARD_RATE*Q16_SHIFT) {
+                        OMX_GetConfig(Clock->hComponent, OMX_IndexConfigPlaybackRate, &sPlayback);
+                        if(bVideoEos == OMX_TRUE && sPlayback.ePlayMode == FAST_FORWARD_TRICK_MODE) {
                             bVideoEos = OMX_FALSE;
                             if(pAppCallback != NULL)
                                 (*pAppCallback)(pAppData, GM_EVENT_FF_EOS, 0);
                         }
-                        else if(bVideoEos == OMX_TRUE && sScale.xScale <= MIN_TRICK_REWIND_RATE*Q16_SHIFT) {
+                        else if(bVideoEos == OMX_TRUE && sPlayback.ePlayMode == FAST_BACKWARD_TRICK_MODE) {
                             bVideoEos = OMX_FALSE;
                             if(pAppCallback != NULL)
                                 (*pAppCallback)(pAppData, GM_EVENT_BW_BOS, 0);
@@ -2228,8 +2344,8 @@ OMX_ERRORTYPE GMPlayer::LoadParser(
 
             for (i = 0; i < nAudioTrackCnt; i ++)
             {
-                sAUDIOTRACKINFO *pTrackInfo = NULL;
-                pTrackInfo = (sAUDIOTRACKINFO *)FSL_MALLOC(sizeof(sAUDIOTRACKINFO));
+                GM_AUDIO_TRACK_INFO *pTrackInfo = NULL;
+                pTrackInfo = (GM_AUDIO_TRACK_INFO *)FSL_MALLOC(sizeof(GM_AUDIO_TRACK_INFO));
                 if(pTrackInfo == NULL) {
                     return OMX_ErrorInsufficientResources;
                 }
@@ -2241,7 +2357,7 @@ OMX_ERRORTYPE GMPlayer::LoadParser(
                 OMX_GetParameter(Parser->hComponent, OMX_IndexParamAudioPortFormat, &sAudioPortFmt);
                 pTrackInfo->eCodingType = sAudioPortFmt.eEncoding;
 				LOG_DEBUG("Audio track coding format: %d\n", sAudioPortFmt.eEncoding);
-
+                fsl_osal_strcpy((fsl_osal_char*)pTrackInfo->mime,(fsl_osal_char*)GetAudioMime(sAudioPortFmt.eEncoding));
                 AudioTrackInfo->Add(pTrackInfo);
 
                 // select first valid audio track
@@ -2307,7 +2423,7 @@ OMX_ERRORTYPE GMPlayer::LoadParser(
             if(fsl_osal_strncmp((const fsl_osal_char*)pMetadata->nKey, AudioTrackKey, fsl_osal_strlen(AudioTrackKey)) == 0) {
                 int nTrackIndex = 0;
                 sscanf((char*)pMetadata->nKey, "audio_track_%d", &nTrackIndex);
-                sAUDIOTRACKINFO *pTrackInfo = AudioTrackInfo->GetNode(nTrackIndex);
+                GM_AUDIO_TRACK_INFO *pTrackInfo = AudioTrackInfo->GetNode(nTrackIndex);
                 fsl_osal_strcpy((fsl_osal_char*)pTrackInfo->lanuage, (fsl_osal_char*)pMetadata->nValue);
                 //printf("%s lanuage %s\n", AudioTrackKey, pTrackInfo->lanuage);
             }
@@ -2325,7 +2441,7 @@ OMX_ERRORTYPE GMPlayer::LoadParser(
          {
              OMX_U32 i,nMetaNum,nMetadataSize;
              OMX_METADATA * pMetadata;
-             sSUBTITLETRACKINFO *pSubTrackInfo=NULL;
+             GM_SUBTITLE_TRACK_INFO *pSubTrackInfo=NULL;
              OMX_STRING SubtitleTrackNameKey= (OMX_STRING)"subtitle_track_name_";
              OMX_STRING SubtitleTrackTypeKey= (OMX_STRING)"subtitle_track_type_";
 
@@ -2333,12 +2449,13 @@ OMX_ERRORTYPE GMPlayer::LoadParser(
 
              for (i = 0; i < nInbandSubtitleTrackCnt; i ++)
              {
-                 pSubTrackInfo = (sSUBTITLETRACKINFO *)FSL_MALLOC(sizeof(sSUBTITLETRACKINFO));
+                 pSubTrackInfo = (GM_SUBTITLE_TRACK_INFO *)FSL_MALLOC(sizeof(GM_SUBTITLE_TRACK_INFO));
                  if(pSubTrackInfo == NULL) {
                      return OMX_ErrorInsufficientResources;
                  }
                  pSubTrackInfo->nTrackNum = i;
                  pSubTrackInfo->bInBand = OMX_TRUE;
+                 fsl_osal_strcpy((fsl_osal_char*)pSubTrackInfo->mime,(fsl_osal_char*)SUBTITLE_MIMETYPE_3GPP);
                  SubtitleTrackInfo->Add(pSubTrackInfo);
              }
 
@@ -3189,7 +3306,7 @@ OMX_STRING GMPlayer::GetAudioTrackName(
         fsl_osal_mutex_unlock(Lock);
         return 0;
     }
-    sAUDIOTRACKINFO *pTrackInfo = AudioTrackInfo->GetNode(nTrackIndex);
+    GM_AUDIO_TRACK_INFO *pTrackInfo = AudioTrackInfo->GetNode(nTrackIndex);
     fsl_osal_mutex_unlock(Lock);
     return (OMX_STRING) pTrackInfo->lanuage;
 }
@@ -3217,7 +3334,7 @@ OMX_BOOL GMPlayer::SelectAudioTrack(OMX_U32 nSelectedTrack)
 
     fsl_osal_mutex_lock(Lock);
 
-    printf("Select audio track %d.\n", nSelectedTrack);
+    printf("GMPlayer Select audio track %d.\n", nSelectedTrack);
 
     if (!(State == GM_STATE_PLAYING || State == GM_STATE_PAUSE || State == GM_STATE_LOADED)) {
         LOG_WARNING("Select audio track in invalid state.\n");
@@ -3239,6 +3356,7 @@ OMX_BOOL GMPlayer::SelectAudioTrack(OMX_U32 nSelectedTrack)
         return OMX_TRUE;
     }
 
+    #if 0
     OMX_PARAM_CAPABILITY sMediaSeekable;
 
     OMX_INIT_STRUCT(&sMediaSeekable, OMX_PARAM_CAPABILITY);
@@ -3249,6 +3367,7 @@ OMX_BOOL GMPlayer::SelectAudioTrack(OMX_U32 nSelectedTrack)
         fsl_osal_mutex_unlock(Lock);
         return OMX_FALSE;
     }
+    #endif
 
 
     OMX_STRING role = NULL;
@@ -3295,7 +3414,7 @@ OMX_STRING GMPlayer::GetSubtitleTrackName(OMX_U32 nTrackIndex)
         fsl_osal_mutex_unlock(Lock);
         return NULL;
     }
-    sSUBTITLETRACKINFO *pTrackInfo = SubtitleTrackInfo->GetNode(nTrackIndex);
+    GM_SUBTITLE_TRACK_INFO *pTrackInfo = SubtitleTrackInfo->GetNode(nTrackIndex);
     fsl_osal_mutex_unlock(Lock);
     return (OMX_STRING) pTrackInfo->lanuage;
 }
@@ -3304,7 +3423,7 @@ OMX_BOOL GMPlayer::SelectSubtitleTrack(OMX_S32 nSelectedTrack)
 {
     OMX_S32 nSubtitleTrackNum;
 
-    printf("Select subtitle Track: %d\n", nSelectedTrack);
+    printf("GMPlayer Select subtitle Track: %d\n", nSelectedTrack);
 
     if (!(State == GM_STATE_PLAYING || State == GM_STATE_PAUSE || State == GM_STATE_LOADED))
     {
@@ -3332,7 +3451,7 @@ OMX_BOOL GMPlayer::SelectSubtitleTrack(OMX_S32 nSelectedTrack)
     pSubtitlePlayer->Reset();
 
     if(nSelectedTrack < 0) {
-        sSUBTITLETRACKINFO *pCurTrackInfo = SubtitleTrackInfo->GetNode(nCurSubtitleTrack);
+        GM_SUBTITLE_TRACK_INFO *pCurTrackInfo = SubtitleTrackInfo->GetNode(nCurSubtitleTrack);
         if(pCurTrackInfo->bInBand == OMX_TRUE)
             SelectInbandSubtitle(-1);
 
@@ -3341,9 +3460,9 @@ OMX_BOOL GMPlayer::SelectSubtitleTrack(OMX_S32 nSelectedTrack)
         return OMX_TRUE;
     }
 
-    sSUBTITLETRACKINFO *pSelectTrackInfo = SubtitleTrackInfo->GetNode(nSelectedTrack);;
+    GM_SUBTITLE_TRACK_INFO *pSelectTrackInfo = SubtitleTrackInfo->GetNode(nSelectedTrack);;
     if(nCurSubtitleTrack >= 0) {
-        sSUBTITLETRACKINFO *pCurTrackInfo = SubtitleTrackInfo->GetNode(nCurSubtitleTrack);
+        GM_SUBTITLE_TRACK_INFO *pCurTrackInfo = SubtitleTrackInfo->GetNode(nCurSubtitleTrack);
         if(pCurTrackInfo->bInBand == OMX_TRUE && pSelectTrackInfo->bInBand != OMX_TRUE)
             SelectInbandSubtitle(-1);
     }
@@ -3404,10 +3523,12 @@ OMX_ERRORTYPE GMPlayer::SeekTrackTo(OMX_U32 nPortIndex, OMX_TICKS position)
     if (ret != OMX_ErrorNone)
         return ret;
 
-	GetStreamDuration(&Dur, nPortIndex);
+    if(!bLiveSource){
+        GetStreamDuration(&Dur, nPortIndex);
 
-    if(position > (Dur - OMX_TICKS_PER_SECOND))
-        position = Dur - OMX_TICKS_PER_SECOND;
+        if(position > (Dur - OMX_TICKS_PER_SECOND))
+            position = Dur - OMX_TICKS_PER_SECOND;
+    }
 
     LOG_DEBUG("Seek to %lld, port: %d\n", position, nPortIndex);
 
@@ -4467,7 +4588,7 @@ OMX_ERRORTYPE GMPlayer::DoSeek(
     }
 
     if(bHasSubtitle == OMX_TRUE) {
-        sSUBTITLETRACKINFO *pSubTrackInfo = SubtitleTrackInfo->GetNode(nCurSubtitleTrack);
+        GM_SUBTITLE_TRACK_INFO *pSubTrackInfo = SubtitleTrackInfo->GetNode(nCurSubtitleTrack);
 
             OMX_TIME_CONFIG_TIMESTAMPTYPE sCur;
             OMX_INIT_STRUCT(&sCur, OMX_TIME_CONFIG_TIMESTAMPTYPE);
@@ -4496,10 +4617,9 @@ OMX_ERRORTYPE GMPlayer::DoSeek(
 
 
 OMX_ERRORTYPE GMPlayer::Normal2Trick(
-        OMX_S32 Scale)
+        OMX_TIME_CONFIG_PLAYBACKTYPE &sPlaybackRate)
 {
     OMX_ERRORTYPE ret = OMX_ErrorNone;
-    OMX_TIME_CONFIG_SCALETYPE sScale;
     OMX_TIME_CONFIG_ACTIVEREFCLOCKTYPE ActiveClock;
     OMX_MARKTYPE sMarkData;
     OMX_PARAM_CAPABILITY sMediaSeekable;
@@ -4558,10 +4678,8 @@ OMX_ERRORTYPE GMPlayer::Normal2Trick(
         pComponent->PortFlush(0);
     }
 
-    //Set scale
-    OMX_INIT_STRUCT(&sScale, OMX_TIME_CONFIG_SCALETYPE);
-    sScale.xScale = Scale;
-    OMX_SetConfig(Clock->hComponent, OMX_IndexConfigTimeScale, &sScale);
+    //Set PlaybackRate
+    OMX_SetConfig(Clock->hComponent, OMX_IndexConfigPlaybackRate, &sPlaybackRate);
 
     //flush v4l render for issue of can not change between trick modes
     //after previous flush, there may be a buffer storing in clock arrives render and not flushed,
@@ -4605,10 +4723,9 @@ OMX_ERRORTYPE GMPlayer::Normal2Trick(
 }
 
 OMX_ERRORTYPE GMPlayer::Trick2Normal(
-        OMX_S32 Scale)
+        OMX_TIME_CONFIG_PLAYBACKTYPE &sPlaybackRate)
 {
     OMX_ERRORTYPE ret = OMX_ErrorNone;
-    OMX_TIME_CONFIG_SCALETYPE sScale;
     OMX_TIME_CONFIG_CLOCKSTATETYPE ClockState;
     OMX_TIME_CONFIG_ACTIVEREFCLOCKTYPE ActiveClock;
     OMX_MARKTYPE sMarkData;
@@ -4676,9 +4793,7 @@ OMX_ERRORTYPE GMPlayer::Trick2Normal(
     OMX_SetConfig(Clock->hComponent, OMX_IndexConfigTimeClockState, &ClockState);
 
     //Set scale
-    OMX_INIT_STRUCT(&sScale, OMX_TIME_CONFIG_SCALETYPE);
-    sScale.xScale = Scale;
-    OMX_SetConfig(Clock->hComponent, OMX_IndexConfigTimeScale, &sScale);
+    OMX_SetConfig(Clock->hComponent, OMX_IndexConfigPlaybackRate, &sPlaybackRate);
 
     //Set ref clock
     OMX_INIT_STRUCT(&ActiveClock, OMX_TIME_CONFIG_ACTIVEREFCLOCKTYPE);
@@ -4715,7 +4830,7 @@ OMX_ERRORTYPE GMPlayer::Trick2Normal(
     }
 
     if(bHasSubtitle == OMX_TRUE) {
-        sSUBTITLETRACKINFO *pSubTrackInfo = SubtitleTrackInfo->GetNode(nCurSubtitleTrack);
+        GM_SUBTITLE_TRACK_INFO *pSubTrackInfo = SubtitleTrackInfo->GetNode(nCurSubtitleTrack);
         if(pSubTrackInfo->bInBand != OMX_TRUE) {
             GMOutbandSubtitleSource *pOutbandSource =
                 (GMOutbandSubtitleSource*)OutbandSubtitleSource->GetNode(pSubTrackInfo->nTrackNum);
@@ -4732,19 +4847,6 @@ OMX_ERRORTYPE GMPlayer::Trick2Normal(
 
     return ret;
 }
-
-OMX_ERRORTYPE GMPlayer::SpeedControl(
-        OMX_S32 Scale)
-{
-    OMX_TIME_CONFIG_SCALETYPE sScale;
-
-    OMX_INIT_STRUCT(&sScale, OMX_TIME_CONFIG_SCALETYPE);
-    sScale.xScale = Scale;
-    OMX_SetConfig(Clock->hComponent, OMX_IndexConfigTimeScale, &sScale);
-
-    return OMX_ErrorNone;
-}
-
 
 OMX_BOOL GMPlayer::GetScreenShotInfo(OMX_IMAGE_PORTDEFINITIONTYPE *pfmt, OMX_CONFIG_RECTTYPE *pCropRect)
 {
@@ -6041,6 +6143,11 @@ OMX_ERRORTYPE GMPlayer::ReSetupAudioPipeline(OMX_STRING NewAudioRole, OMX_S32 nA
 
     // Seek audio track to play time.
     ret = SeekTrackTo(Parser->PortPara[AUDIO_PORT_PARA].nStartPortNumber, position);
+    if(bLiveSource){
+        LOG_DEBUG("live source seek, ignore ret");
+        ret = OMX_ErrorNone;
+    }
+
     if (ret != OMX_ErrorNone) {
         LOG_ERROR("Seek audio track to play time failed.\n");
         DeStructAudioPipeline();
@@ -6106,7 +6213,7 @@ OMX_ERRORTYPE GMPlayer::AddOutBandSubtitleSource(
         return OMX_ErrorInsufficientResources;
     }
 
-    sSUBTITLETRACKINFO *pSubTrackInfo = (sSUBTITLETRACKINFO *)FSL_MALLOC(sizeof(sSUBTITLETRACKINFO));
+    GM_SUBTITLE_TRACK_INFO *pSubTrackInfo = (GM_SUBTITLE_TRACK_INFO *)FSL_MALLOC(sizeof(GM_SUBTITLE_TRACK_INFO));
     if(pSubTrackInfo == NULL) {
         FSL_DELETE(pOutbandSource);
         fsl_osal_mutex_unlock(Lock);
@@ -6126,6 +6233,8 @@ OMX_ERRORTYPE GMPlayer::AddOutBandSubtitleSource(
     pSubTrackInfo->nTrackNum = nOutbandSubtitleTrackCnt;
     fsl_osal_strcpy((OMX_STRING)pSubTrackInfo->type, type);
     nOutbandSubtitleTrackCnt ++;
+    if(!fsl_osal_strcmp(type,(fsl_osal_char*)"srt"))
+        fsl_osal_strcpy((fsl_osal_char*)pSubTrackInfo->mime,(fsl_osal_char*)SUBTITLE_MIMETYPE_SUBRIP);
     sprintf((OMX_STRING)pSubTrackInfo->lanuage, "%s %d", type, (int)nOutbandSubtitleTrackCnt);
     SubtitleTrackInfo->Add(pSubTrackInfo);
     OutbandSubtitleSource->Add((GMSubtitleSource*)pOutbandSource);
@@ -6168,8 +6277,6 @@ OMX_BOOL GMPlayer::IsSeekable()
 
     return sMediaSeekable.bCapability;
 }
-
-
 
 OMX_ERRORTYPE GMPlayer::SetupSubtitlePlayer()
 {
@@ -6221,7 +6328,7 @@ OMX_ERRORTYPE GMPlayer::SelectInbandSubtitle(OMX_S32 nSelectedTrack)
     sCur.nPortIndex = OMX_ALL;
     OMX_GetConfig(Clock->hComponent, OMX_IndexConfigTimeCurrentMediaTime, &sCur);
 
-    sSUBTITLETRACKINFO *pSubTrackInfo = SubtitleTrackInfo->GetNode(nSelectedTrack);
+    GM_SUBTITLE_TRACK_INFO *pSubTrackInfo = SubtitleTrackInfo->GetNode(nSelectedTrack);
     index = pSubTrackInfo->nTrackNum;
     ret = OMX_SetConfig(Parser->hComponent, OMX_IndexParamSubtitleSelect, &index);
     if(ret != OMX_ErrorNone)
@@ -6249,7 +6356,7 @@ OMX_ERRORTYPE GMPlayer::SelectOutbandSubtitle(OMX_S32 nSelectedTrack)
     if(nSelectedTrack < 0)
         return OMX_ErrorNone;
 
-    sSUBTITLETRACKINFO *pSubTrackInfo = SubtitleTrackInfo->GetNode(nSelectedTrack);
+    GM_SUBTITLE_TRACK_INFO *pSubTrackInfo = SubtitleTrackInfo->GetNode(nSelectedTrack);
     GMOutbandSubtitleSource *pOutbandSource =
         (GMOutbandSubtitleSource*)OutbandSubtitleSource->GetNode(pSubTrackInfo->nTrackNum);
 
@@ -6289,4 +6396,158 @@ OMX_ERRORTYPE GMPlayer::DisableParserVideoPort()
     bHasVideo = OMX_FALSE;
 
     return OMX_ErrorNone;
+}
+
+OMX_ERRORTYPE GMPlayer::GetSyncSetting(GM_AV_SYNC_SETTING *pSetting,OMX_S32 *pFps)
+{
+    if(pSetting == NULL || pFps == NULL)
+        return OMX_ErrorBadParameter;
+
+    fsl_osal_memcpy(pSetting, &sSyncSetting, sizeof(GM_AV_SYNC_SETTING));
+    *pFps = nFps;
+    LOG_DEBUG("GMPlayer::GetSyncSetting source=%d,audio=%d,to=%d,fps=%d\n",
+        pSetting->source,pSetting->audioAdjustMode,pSetting->tolerance,nFps);
+    return OMX_ErrorNone;
+}
+
+OMX_ERRORTYPE GMPlayer::SetSyncSetting(GM_AV_SYNC_SETTING *pSetting,OMX_S32 fps)
+{
+    if(pSetting == NULL)
+        return OMX_ErrorBadParameter;
+
+    if(pSetting->source != GM_AV_SOURCE_DEFAULT)
+        return OMX_ErrorBadParameter;
+    LOG_DEBUG("GMPlayer::SetSyncSetting source=%d,audio=%d,to=%d,fps=%d\n",
+        pSetting->source,pSetting->audioAdjustMode,pSetting->tolerance,fps);
+
+    fsl_osal_memcpy(&sSyncSetting, pSetting, sizeof(GM_AV_SYNC_SETTING));
+    nFps = fps;
+    return OMX_ErrorNone;
+}
+OMX_U32 GMPlayer::GetVideoTrackNum()
+{
+    //only support one video track now.
+    if(nVideoTrackCnt > 0)
+        return 1;
+    else
+        return 0;
+}
+OMX_U32 GMPlayer::GetCurVideoTrack()
+{
+    OMX_U32 nCurVideoTrack = 0;
+
+    #if 0
+    if(Parser) {
+        OMX_INIT_STRUCT(&u32Type, OMX_PARAM_U32TYPE);
+        u32Type.nPortIndex = Parser->PortPara[VIDEO_PORT_PARA].nStartPortNumber;
+        OMX_GetParameter(Parser->hComponent, OMX_IndexParamActiveStream, &u32Type);
+        nCurVideoTrack = u32Type.nU32;
+        LOG_DEBUG("Current video track: %d\n", nCurVideoTrack);
+    }
+    #endif
+    
+    return nCurVideoTrack;
+}
+OMX_STRING GMPlayer::GetVideoMime(OMX_U32 type)
+{
+    OMX_U32 i = 0;
+    const char* mime = NULL;
+    for(i = 0; i < sizeof(video_mime_table)/sizeof(mime_table); i++){
+        if(type == video_mime_table[i].index){
+            mime = video_mime_table[i].mime;
+            break;
+        }
+    }
+
+    if(mime == NULL)
+        mime = VIDEO_MIMETYPE_UNKNOWN;
+
+    return (OMX_STRING)mime;
+}
+OMX_STRING GMPlayer::GetAudioMime(OMX_U32 type)
+{
+    OMX_U32 i = 0;
+    const char* mime = NULL;
+    for(i = 0; i < sizeof(audio_mime_table)/sizeof(mime_table); i++){
+        if(type == audio_mime_table[i].index){
+            mime = audio_mime_table[i].mime;
+            break;
+        }
+    }
+
+    //check g711 mime type
+    if(type == OMX_AUDIO_CodingG711){
+        OMX_AUDIO_PARAM_PCMMODETYPE sParam;
+        OMX_INIT_STRUCT(&sParam, OMX_AUDIO_PARAM_PCMMODETYPE);
+        sParam.nPortIndex = 0;
+        OMX_GetParameter(Parser->hComponent, OMX_IndexParamAudioPcm, &sParam);
+        if(sParam.ePCMMode == OMX_AUDIO_PCMModeALaw)
+            mime = AUDIO_MIMETYPE_G711_ALAW;
+        else if(sParam.ePCMMode == OMX_AUDIO_PCMModeMULaw)
+            mime = AUDIO_MIMETYPE_G711_MLAW;
+    }
+    else if(type == OMX_AUDIO_CodingAAC){
+        OMX_AUDIO_PARAM_AACPROFILETYPE sParam;
+        OMX_INIT_STRUCT(&sParam, OMX_AUDIO_PARAM_AACPROFILETYPE);
+        sParam.nPortIndex = 0;
+        OMX_GetParameter(Parser->hComponent, OMX_IndexParamAudioAac, &sParam);
+        if(sParam.eAACStreamFormat == OMX_AUDIO_AACStreamFormatMP2ADTS)
+            mime = ADUIO_MIMETYPE_AAC_ADTS;
+    }
+    else if(type == OMX_AUDIO_CodingAMR){
+        OMX_AUDIO_PARAM_AMRTYPE sParam;
+        OMX_INIT_STRUCT(&sParam, OMX_AUDIO_PARAM_AMRTYPE);
+        sParam.nPortIndex = 0;
+        OMX_GetParameter(Parser->hComponent, OMX_IndexParamAudioAmr, &sParam);
+        if(sParam.eAMRBandMode >= OMX_AUDIO_AMRBandModeNB0 && sParam.eAMRBandMode <= OMX_AUDIO_AMRBandModeNB7)
+            mime = AUDIO_MIMETYPE_AMR_NB;
+        else if(sParam.eAMRBandMode >= OMX_AUDIO_AMRBandModeWB0 && sParam.eAMRBandMode <= OMX_AUDIO_AMRBandModeWB8)
+            mime = AUDIO_MIMETYPE_AMR_WB;
+    }
+
+    if(mime == NULL)
+        mime = AUDIO_MIMETYPE_UNKNOWN;
+
+    return (OMX_STRING)mime;
+}
+OMX_BOOL GMPlayer::GetVideoTrackInfo(OMX_U32 nTrackIndex,GM_VIDEO_TRACK_INFO*pInfo)
+{
+    GM_VIDEO_TRACK_INFO sInfo;
+
+    //only support one video track.
+    if(pInfo == NULL || nTrackIndex > 0)
+        return OMX_FALSE;
+
+    fsl_osal_memset(pInfo,0,sizeof(GM_VIDEO_TRACK_INFO));
+
+    pInfo->eCodingType = VideoFmt;
+    pInfo->nTrackNum = 0;
+    fsl_osal_strcpy((fsl_osal_char*)pInfo->mime,(fsl_osal_char*)GetVideoMime(VideoFmt));
+    fsl_osal_strcpy((fsl_osal_char*)pInfo->lanuage,(fsl_osal_char*)"uud");
+
+    return OMX_TRUE;
+}
+OMX_BOOL GMPlayer::GetAudioTrackInfo(OMX_U32 nTrackIndex,GM_AUDIO_TRACK_INFO*pInfo)
+{
+    GM_AUDIO_TRACK_INFO * audioInfo;
+    OMX_U32 trackCnt = AudioTrackInfo->GetNodeCnt();
+    if(pInfo == NULL || nTrackIndex+1 > trackCnt)
+        return OMX_FALSE;
+
+    audioInfo = AudioTrackInfo->GetNode(nTrackIndex);
+    fsl_osal_memcpy(pInfo,audioInfo,sizeof(GM_AUDIO_TRACK_INFO));
+    return OMX_TRUE;
+}
+OMX_BOOL GMPlayer::GetSubtitleTrackInfo(OMX_U32 nTrackIndex,GM_SUBTITLE_TRACK_INFO*pInfo)
+{
+    GM_SUBTITLE_TRACK_INFO * subtitleInfo;
+    OMX_U32 trackCnt = SubtitleTrackInfo->GetNodeCnt();
+    if(pInfo == NULL || nTrackIndex+1 > trackCnt){
+        LOG_ERROR("GetSubtitleTrackInfo failed,index=%d,cnt=%d",nTrackIndex,trackCnt);
+        return OMX_FALSE;
+    }
+
+    subtitleInfo = SubtitleTrackInfo->GetNode(nTrackIndex);
+    fsl_osal_memcpy(pInfo,subtitleInfo,sizeof(GM_SUBTITLE_TRACK_INFO));
+    return OMX_TRUE;
 }

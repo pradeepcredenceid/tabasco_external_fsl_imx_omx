@@ -1,5 +1,5 @@
 /**
- *  Copyright (c) 2010-2014 Freescale Semiconductor, Inc.
+ *  Copyright (c) 2010-2015 Freescale Semiconductor, Inc.
  *  All Rights Reserved.
  *
  *  The following programs are the sole property of Freescale Semiconductor Inc.,
@@ -212,6 +212,13 @@ status_t OMXMetadataRetriever::setDataSource(
 
     return ExtractorLoad(mExtractor, contentURI);
 }
+
+#if (ANDROID_VERSION >= MARSH_MALLOW_600)
+status_t OMXMetadataRetriever::setDataSource(const sp<DataSource>& source)
+{
+    return NO_ERROR;
+}
+#endif
 
 status_t OMXMetadataRetriever::setMode(int mode)
 {
@@ -431,6 +438,9 @@ void OMXMetadataRetriever::ExtractMetadata()
 #endif
             {"author",METADATA_KEY_AUTHOR},
 			{ "albumart", 0 },
+#if (ANDROID_VERSION >= MARSH_MALLOW_600)
+            {"capture_fps",METADATA_KEY_CAPTURE_FRAMERATE},
+#endif
 		};
 
 		static const size_t kNumMapEntries = sizeof(kKeyMap) / sizeof(kKeyMap[0]);

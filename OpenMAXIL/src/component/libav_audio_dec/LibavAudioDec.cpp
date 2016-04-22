@@ -601,7 +601,7 @@ OMX_ERRORTYPE LibavAudioDec::AudioFilterCheckCodecConfig()
 
     switch((OMX_U32)CodingType) {
         case OMX_AUDIO_CodingAPE:
-            memcpy(codecData, pInBufferHdr->pBuffer, pInBufferHdr->nFilledLen);
+            fsl_osal_memcpy(codecData, pInBufferHdr->pBuffer, pInBufferHdr->nFilledLen);
             codecDataSize = pInBufferHdr->nFilledLen;
             break;
         default:

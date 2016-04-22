@@ -75,6 +75,7 @@ class SurfaceRender : public VideoRender {
         OMX_U32 mBufferUsage;
         OMX_S32 mScalingMode;
         OMX_BOOL bFirstRender;
+        OMX_U32 nFrameNumber;
 
 
         OMX_ERRORTYPE InitRenderComponent();
@@ -100,6 +101,7 @@ class SurfaceRender : public VideoRender {
         OMX_U8 GetDequeuedBufferNumber();
         OMX_U32 GetDeviceDropFames();
         OMX_ERRORTYPE CleanBufferContent(OMX_U32 index);
+        void CleanCropContent(OMX_U32 index);
 };
 #endif
 /* File EOF */

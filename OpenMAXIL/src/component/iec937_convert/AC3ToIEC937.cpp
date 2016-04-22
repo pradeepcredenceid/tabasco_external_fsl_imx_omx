@@ -10,7 +10,7 @@
 #include "AC3ToIEC937.h"
 #include "Ac3FrameParser.h"
 
-#define IN_BUFFER_SIZE (3840)
+#define IN_BUFFER_SIZE (5620)
 #define FRAME_LEN (1536)
 #define OUT_BUFFER_SIZE (FRAME_LEN*2*2)
 

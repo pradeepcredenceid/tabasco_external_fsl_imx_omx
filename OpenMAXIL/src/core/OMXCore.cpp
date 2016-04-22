@@ -118,7 +118,9 @@ OMX_ERRORTYPE OMXCore::ComponentRegister()
 					REG_ENTRY *pRegEntryItem = RegEntry->GetNode(EntryIndex);
 					if (pRegEntryItem == NULL)
 					{
-						break;
+                        FSL_FREE(pRoleInfo);
+                        EntryIndex --;
+						continue;
 					}
 
 					if (!fsl_osal_strcmp(pRegEntryItem->name, "role_priority"))
@@ -442,6 +444,9 @@ OMX_ERRORTYPE OMXCore::OMX_ComponentNameEnum(
 	}
 
 	pComponentInfoPtr = ComponentList.GetNode(nIndex);
+    if(pComponentInfoPtr->ComponentName == NULL)
+        return OMX_ErrorInsufficientResources;
+
 	if (nNameLength >= fsl_osal_strlen((fsl_osal_char *)pComponentInfoPtr->ComponentName)+1)
 	{
 		fsl_osal_strcpy((fsl_osal_char *)cComponentName, (fsl_osal_char *)pComponentInfoPtr->ComponentName);

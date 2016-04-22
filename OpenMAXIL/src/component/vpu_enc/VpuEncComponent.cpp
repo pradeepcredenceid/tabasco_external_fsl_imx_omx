@@ -1,5 +1,5 @@
 /**
- *  Copyright (c) 2010-2015, Freescale Semiconductor Inc.,
+ *  Copyright (c) 2010-2016, Freescale Semiconductor Inc.,
  *  All Rights Reserved.
  *
  *  The following programs are the sole property of Freescale Semiconductor Inc.,
@@ -567,11 +567,12 @@ OMX_S32 OutFrameBufPhyFindValid(VpuEncoderMemInfo* pInMem, OMX_U32* pOutPhy,OMX_
 		{
 			*pOutPhy=pInMem->phyMem_phyAddr[i];
 			*pOutVirt=pInMem->phyMem_virtAddr[i];
-			*pOutLen=pInMem->phyMem_size[i];
 #ifdef VPU_ENC_GUESS_OUTLENGTH
 		//1 TODO: in fact, we do know the size value since only address is transfered through SetOutputBuffer()
 		//give one big enough value, Now, it is only used by assert checking in encode frame : header length <= output buffer size
 		*pOutLen=(64*1024);
+#else
+		*pOutLen=pInMem->phyMem_size[i];
 #endif
 			return i;
 		}
@@ -1021,7 +1022,7 @@ OMX_S32 PreProcessIPUDeinit(VpuEncoderIpuHandle* pIpuHandle)
 OMX_S32 PreFrameSet(VpuEncoderPreProcessMemInfo* pPreMem,OMX_U32 nPhy,OMX_U32 nVir,OMX_U32 nSize,OMX_U32 nFlag, OMX_S32* pIndex)
 {
 	OMX_S32 i;
-	for(i=0;i<=VPU_ENC_MAX_NUM_MEM;i++){
+	for(i=0;i<VPU_ENC_MAX_NUM_MEM;i++){
 		if(pPreMem->phyAddr[i]==NULL){
 			pPreMem->phyAddr[i]=nPhy;
 			pPreMem->virtAddr[i]=nVir;
@@ -2281,6 +2282,10 @@ FilterBufRetCode VpuEncoder::FilterOneBuffer()
 		//case VPU_ENC_COM_STATE_WAIT_FRM:
 		//	break;
 		case VPU_ENC_COM_STATE_LOADED:
+			if(((NULL==pInBufferPhy)||(0>=nInSize))
+			    && (bInEos == OMX_FALSE)){
+			    return FILTER_NO_INPUT_BUFFER;
+			}
 			PreProcessetSetStrategy(sInFmt.eColorFormat,&bEnabledPreProcess);
 			if(bEnabledPreProcess){
 				OMX_S32 nPreOutSize;
@@ -3003,7 +3008,6 @@ OMX_ERRORTYPE VpuEncoder::PreThreadFlushOutput()
 	//popup all output frame, and refill into pPreOutReturnQueue
 	while(pPreOutQueue->Size()>0){
 		pPreOutQueue->Get(&index);
-		index=index;
 		pPreOutReturnQueue->Add(&index);
 	}
 	nPreOutIndex=-1;

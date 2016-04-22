@@ -1,5 +1,5 @@
 /**
- *  Copyright (c) 2010-2013, Freescale Semiconductor Inc.,
+ *  Copyright (c) 2010-2016, Freescale Semiconductor Inc.,
  *  All Rights Reserved.
  *
  *  The following programs are the sole property of Freescale Semiconductor Inc.,
@@ -23,7 +23,7 @@
 #if (ANDROID_VERSION >= JELLY_BEAN_43)
 #include <binder/IPCThreadState.h>
 #endif
-
+#include <cutils/properties.h>
 using namespace android;
 
 #if 0
@@ -109,8 +109,14 @@ status_t OMXRecorder::ProcessEvent(
     return NO_ERROR;
 }
 
+#if (ANDROID_VERSION < MARSH_MALLOW_600)
 OMXRecorder::OMXRecorder()
+#else
+OMXRecorder::OMXRecorder(const String16 &opPackageName)
+        : MediaRecorderBase(opPackageName)
+#endif
 {
+
 	OMX_Recorder* mRecorder = NULL;
 
     LOG_DEBUG("OMXRecorder constructor.\n");
@@ -138,7 +144,7 @@ OMXRecorder::~OMXRecorder()
 {
     OMX_Recorder* mRecorder = (OMX_Recorder*)recorder;
 
-    LOG_DEBUG("OMXRecorder de-constructor %p.\n", mRecorder);
+    LOG_DEBUG("OMXRecorder destructor %p.\n", mRecorder);
 
     if(mRecorder != NULL) {
         mRecorder->deleteIt(mRecorder);
@@ -423,7 +429,28 @@ static bool safe_strtoi64(const char *s, int64_t *val) {
 
     return *end == '\0';
 }
+static bool safe_strtof(const char *s, float *val) {
+    char *end;
 
+    // It is lame, but according to man page, we have to set errno to 0
+    // before calling strtof().
+    errno = 0;
+    *val = strtof(s, &end);
+
+    if (end == s || errno == ERANGE) {
+        return false;
+    }
+
+    // Skip trailing whitespace
+    while (isspace(*end)) {
+        ++end;
+    }
+
+    // For a successful return, the string must contain nothing but a valid
+    // float literal optionally surrounded by whitespace.
+
+    return *end == '\0';
+}
 // Return true if the value is in [0, 0x007FFFFFFF]
 static bool safe_strtoi32(const char *s, int32_t *val) {
     int64_t temp;
@@ -603,7 +630,15 @@ status_t OMXRecorder::setParameter(
 				return BAD_VALUE;
 			return NO_ERROR;
 		}
-	} else if (key == "time-between-time-lapse-frame-capture") {
+	} else if (key == "time-lapse-fps") {
+        float fps;
+        if (safe_strtof(value.string(), &fps)) {
+            OMX_S32 capture_fps = fps * 1000;
+            if(OMX_TRUE != mRecorder->setParamCaptureFps(mRecorder,capture_fps))
+                return BAD_VALUE;
+            return NO_ERROR;
+        }
+    } else if (key == "time-between-time-lapse-frame-capture") {
 		int64_t timeBetweenTimeLapseFrameCaptureMs;
 		if (safe_strtoi64(value.string(), &timeBetweenTimeLapseFrameCaptureMs)) {
 			if(OMX_TRUE != mRecorder->setParamTimeBetweenTimeLapseFrameCapture(mRecorder,
@@ -670,14 +705,28 @@ status_t OMXRecorder::setClientName(const String16& clientName){
 status_t OMXRecorder::prepare()
 {
     OMX_Recorder* mRecorder = (OMX_Recorder*)recorder;
+    char val[PROPERTY_VALUE_MAX];
+    OMX_U32 versionLen = 0;
 
     LOG_DEBUG("OMXRecorder prepare\n");
 	if (mRecorder == NULL)
         return BAD_VALUE;
 
+
 #if (ANDROID_VERSION >= JELLY_BEAN_43)
     mClientUid = IPCThreadState::self()->getCallingUid();
-    mRecorder->setClient(mRecorder, mClientName.string(), mClientUid);
+    mRecorder->setClient(mRecorder, (const OMX_U16*)mClientName.string(), mClientUid);
+#endif
+
+#if (ANDROID_VERSION >= MARSH_MALLOW_600)
+    mRecorder->setPackageName(mRecorder, (const OMX_U16*)mOpPackageName.string());
+
+
+    if (property_get("ro.build.version.release", val, NULL))
+        versionLen = strlen(val);
+
+    if(versionLen > 0)
+        mRecorder->setAndroidVersionString(mRecorder, (OMX_U8*)val, versionLen);
 #endif
 
     if(OMX_TRUE != mRecorder->prepare(mRecorder))
@@ -724,6 +773,8 @@ status_t OMXRecorder::stop()
 
     if(OMX_TRUE != mRecorder->stop(mRecorder))
         return BAD_VALUE;
+
+    mBufferConsumer.clear();
 
     return NO_ERROR;
 }
@@ -789,7 +840,49 @@ sp<ISurfaceTexture> OMXRecorder::querySurfaceMediaSource() const
 #elif (ANDROID_VERSION >= JELLY_BEAN_43)
 sp<IGraphicBufferProducer> OMXRecorder::querySurfaceMediaSource() const
 {
-	return NULL;
+    OMX_PTR pBP;
+    OMX_Recorder* mRecorder = (OMX_Recorder*)recorder;
+
+    LOG_DEBUG("OMXRecorder %s", __FUNCTION__);
+
+    if (mRecorder == NULL)
+        return NULL;
+
+    if(OMX_TRUE != mRecorder->getBufferProducer(mRecorder, &pBP))
+        return NULL;
+
+    LOG_DEBUG("bufferProducer %p", pBP);
+
+    if(pBP == NULL)
+        return NULL;
+
+    return *(sp<IGraphicBufferProducer> *)pBP;
+
+}
+#endif
+
+#if (ANDROID_VERSION >= MARSH_MALLOW_600)
+
+status_t OMXRecorder::setInputSurface(const sp<IGraphicBufferConsumer>& surface)
+{
+    OMX_Recorder* mRecorder = (OMX_Recorder*)recorder;
+    LOG_DEBUG("OMXRecorder setInputSurface %p\n", surface.get());
+
+    if (mRecorder == NULL)
+        return BAD_VALUE;
+
+    if (surface == NULL)
+        return BAD_VALUE;
+
+    if(surface.get() != NULL)
+        LOG_DEBUG("input surface is set to %p\n", surface.get());
+
+    mBufferConsumer = surface;
+
+    if(OMX_TRUE != mRecorder->setInputSurface(mRecorder, (OMX_PTR)(&mBufferConsumer)))
+        return BAD_VALUE;
+
+    return NO_ERROR;
 }
 #endif
 

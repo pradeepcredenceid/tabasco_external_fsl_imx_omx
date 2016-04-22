@@ -55,11 +55,14 @@ static void segfault_signal_handler(int signum)
 {
     OMX_S32 fd_fb = 0;
     OMX_STRING device = (OMX_STRING)"/dev/graphics/fb1";
+    int  retval = 0;
 
     fd_fb = open(device, O_RDWR, 0);
     if(fd_fb > 0) {
         int blank = 1;
-        ioctl(fd_fb, FBIOBLANK, blank);
+        retval = ioctl(fd_fb, FBIOBLANK, blank);
+        if(retval < 0)
+            LOG_ERROR("Fail to blank fb.");
         close(fd_fb);
     }
 
@@ -151,6 +154,19 @@ IpulibRender::IpulibRender()
 
     OMX_INIT_STRUCT(&sCapture, OMX_CONFIG_CAPTUREFRAME);
     sCapture.eType = CAP_NONE;
+
+    mIpuFd = -1;
+    mFb = -1;
+    nFBWidth = nFBHeight = 0;
+    bCaptureFrameDone = OMX_FALSE;
+    pFbVAddrBase = NULL;
+    pFbPAddrBase = NULL;
+    nFbSize = 0;
+    nNextFb = 0;
+    fsl_osal_memset(&mTask, 0, sizeof(struct ipu_task));
+    fsl_osal_memset(&sOutputMode, 0, sizeof(OMX_CONFIG_OUTPUTMODE));
+    fsl_osal_memset(pFbPAddr, 0, sizeof(OMX_PTR) * MAX_FB_BUFFERS);
+
 }
 
 OMX_ERRORTYPE IpulibRender::InitRenderComponent()
@@ -656,9 +672,12 @@ OMX_ERRORTYPE IpulibRender::FBInit()
 
 OMX_ERRORTYPE IpulibRender::FBDeInit()
 {
+    int  retval = 0;
     if(mFb) {
         munmap(pFbVAddrBase, nFbSize);
-        ioctl(mFb, FBIOBLANK, 1);
+        retval = ioctl(mFb, FBIOBLANK, 1);
+        if(retval < 0)
+            LOG_ERROR("Fail to blank fb.");
         close(mFb);
         mFb = 0;
     }
@@ -682,7 +701,9 @@ OMX_ERRORTYPE IpulibRender::FBShowFrame()
 
     screen_info.yoffset = nFBHeight * nNextFb;
     screen_info.activate = FB_ACTIVATE_VBL;
-    ioctl(mFb, FBIOPAN_DISPLAY, &screen_info);
+    retval = ioctl(mFb, FBIOPAN_DISPLAY, &screen_info);
+    if (retval < 0)
+        return OMX_ErrorUndefined;
     nNextFb ++;
     if(nNextFb >= MAX_FB_BUFFERS)
         nNextFb = 0;

@@ -49,6 +49,7 @@ class VideoSource : public ComponentBase {
 		OMX_CONFIG_ROTATIONTYPE Rotation;
 		const OMX_U16 * clientName;
 		OMX_S32 clientUID;
+		OMX_CONFIG_BOOLEANTYPE EOS;
 	private:
 		OMX_ERRORTYPE InitComponent();
         OMX_ERRORTYPE DeInitComponent();
@@ -88,12 +89,13 @@ class VideoSource : public ComponentBase {
         virtual OMX_ERRORTYPE GetOneFrameFromDevice() = 0;
         virtual OMX_TICKS GetDelayofFrame() = 0;
         virtual OMX_TICKS GetFrameTimeStamp() = 0;
+        virtual OMX_ERRORTYPE InstanceGetParameter(OMX_INDEXTYPE nParamIndex, OMX_PTR pStructure);
+        virtual OMX_ERRORTYPE InstanceSetParameter(OMX_INDEXTYPE nParamIndex,OMX_PTR pStructure);
 
 		OMX_BOOL bFirstFrame;
 		OMX_TICKS nFrameDelay;
 		OMX_TICKS nBaseTime;
 		OMX_TICKS nMediaTimestampPre;
-		OMX_CONFIG_BOOLEANTYPE EOS;
 		OMX_U32 nCaptureFrameCnt;
 		OMX_BOOL bSendEOS;
 		OMX_TICKS nMaxDuration;

@@ -1,5 +1,5 @@
 /**
- *  Copyright (c) 2011-2014, Freescale Semiconductor Inc.,
+ *  Copyright (c) 2011-2016, Freescale Semiconductor Inc.,
  *  All Rights Reserved.
  *
  *  The following programs are the sole property of Freescale Semiconductor Inc.,
@@ -62,6 +62,7 @@ SurfaceRender::SurfaceRender()
 
     OMX_INIT_STRUCT(&sCapture, OMX_CONFIG_CAPTUREFRAME);
     sCapture.eType = CAP_NONE;
+    bCaptureFrameDone = OMX_FALSE;
     EnqueueBufferIdx = -1;
     nMinUndequeuedBuffers = 2;
     OMX_INIT_STRUCT(&sOutputMode, OMX_CONFIG_OUTPUTMODE);
@@ -70,6 +71,8 @@ SurfaceRender::SurfaceRender()
     bSuspend = OMX_FALSE;
     bFirstRender = OMX_TRUE;
     mBufferUsage = 0;
+    nEnqueuedBuffers = 0;
+    nFrameNumber = 0;
 #if (ANDROID_VERSION >= JELLY_BEAN_42)
     mScalingMode = NATIVE_WINDOW_SCALING_MODE_SCALE_TO_WINDOW;
 #endif
@@ -252,7 +255,7 @@ OMX_ERRORTYPE SurfaceRender::RenderSetConfig(
 OMX_ERRORTYPE SurfaceRender::SetDeviceRotation()
 {
 
-    OMX_S32 transform;
+    OMX_S32 transform = 0;
     if(nativeWindow == NULL){
         LOG_ERROR("nativeWindow is NULL!\n");
         return OMX_ErrorUndefined;
@@ -460,7 +463,7 @@ OMX_ERRORTYPE SurfaceRender::WriteDevice(
         OMX_BUFFERHEADERTYPE *pBufferHdr)
 {
     GraphicBufferMapper &mapper = GraphicBufferMapper::get();
-    Rect bounds(sVideoFmt.nFrameWidth, sVideoFmt.nFrameHeight);
+    Rect bounds((uint32_t)sVideoFmt.nFrameWidth, (uint32_t)sVideoFmt.nFrameHeight);
     OMX_ERRORTYPE ret = OMX_ErrorNone;
     OMX_U32 nIndex;
     android_native_buffer_t *buf;
@@ -517,6 +520,19 @@ OMX_ERRORTYPE SurfaceRender::WriteDevice(
 			SendEvent(OMX_EventRenderingStart, 0, 0, NULL);
 #endif
             bFirstRender = OMX_FALSE;
+        }
+
+        // browser can't apply crop info for first few frames, need to clean garbage data manually
+        if(nFrameNumber < 8){
+            if(sRectIn.nLeft != 0 || sRectIn.nTop !=0
+                || sRectIn.nWidth != sVideoFmt.nFrameWidth
+                || sRectIn.nHeight != sVideoFmt.nFrameHeight)
+            {
+                LOG_DEBUG("clean crop area before rendering buffer %d %d/%d/%d/%d, %d/%d",
+                    nIndex, sRectIn.nLeft,sRectIn.nTop, sRectIn.nWidth, sRectIn.nHeight, sVideoFmt.nFrameWidth, sVideoFmt.nFrameHeight);
+                CleanCropContent(nIndex);
+            }
+            nFrameNumber++;
         }
 
 #if (ANDROID_VERSION <= ICS)
@@ -642,7 +658,7 @@ OMX_ERRORTYPE SurfaceRender::BufferInit()
     int color_Format = HAL_PIXEL_FORMAT_YCbCr_420_SP;
     private_handle_t *prvHandle ;
     GraphicBufferMapper &mapper = GraphicBufferMapper::get();
-    Rect bounds(sVideoFmt.nFrameWidth, sVideoFmt.nFrameHeight);
+    Rect bounds((uint32_t)sVideoFmt.nFrameWidth, (uint32_t)sVideoFmt.nFrameHeight);
 
     LOG_DEBUG("SurfaceRender: BufferInit\n");
 
@@ -812,6 +828,8 @@ OMX_ERRORTYPE SurfaceRender::BufferInit()
         fb_data[i].pVirtualAddr = dst;
         AddHwBuffer(fb_data[i].pPhyiscAddr, fb_data[i].pVirtualAddr);
 
+        // this clean up job is done in CleanCropContent
+        /*
         // Green bar appears at bottom of screen when some streaming video start to play in browser.
         // First few frames are already displayed before browser uses crop info to adjust video display area,
         // so the crop area filled with 0 is displayed out at beginning.
@@ -824,6 +842,7 @@ OMX_ERRORTYPE SurfaceRender::BufferInit()
                 i, sRectIn.nLeft,sRectIn.nTop, sRectIn.nWidth, sRectIn.nHeight, sVideoFmt.nFrameWidth, sVideoFmt.nFrameHeight);
             CleanBufferContent(i);
         }
+        */
 
         // need to see whether or not commenting this affects...
         /*
@@ -964,7 +983,7 @@ OMX_ERRORTYPE SurfaceRender::FlushComponent(
     OMX_U32 nIndex;
     android_native_buffer_t *buf;
     GraphicBufferMapper &mapper = GraphicBufferMapper::get();
-    Rect bounds(sVideoFmt.nFrameWidth, sVideoFmt.nFrameHeight);
+    Rect bounds((uint32_t)sVideoFmt.nFrameWidth, (uint32_t)sVideoFmt.nFrameHeight);
     void *dst;
     int err;
 
@@ -1104,6 +1123,141 @@ OMX_ERRORTYPE SurfaceRender::CleanBufferContent(OMX_U32 index)
     }
 
     return OMX_ErrorNone;
+
+}
+
+void SurfaceRender::CleanCropContent(OMX_U32 index)
+{
+    OMX_U32 y_length = sVideoFmt.nFrameWidth * sVideoFmt.nFrameHeight;
+
+    LOG_DEBUG("color format is %d" ,sVideoFmt.eColorFormat );
+
+    switch(sVideoFmt.eColorFormat ){
+        case OMX_COLOR_FormatYUV420SemiPlanar:
+        {
+            ASSERT(fb_data[index].nLength >= y_length *3/2);
+            if(sVideoFmt.nFrameWidth > sRectIn.nLeft + sRectIn.nWidth){
+                for(OMX_U32 i = 0; i < sRectIn.nTop + sRectIn.nHeight ; i++){
+                    OMX_U32 crop_start_y = sVideoFmt.nFrameWidth * i + sRectIn.nLeft + sRectIn.nWidth;
+                    OMX_U32 crop_len_y = sVideoFmt.nFrameWidth - (sRectIn.nLeft + sRectIn.nWidth);
+                    fsl_osal_memset((OMX_U8*)fb_data[index].pVirtualAddr + crop_start_y , 0x10, crop_len_y);
+                }
+                for(OMX_U32 i = 0; i < (sRectIn.nTop + sRectIn.nHeight)/2 ; i++){
+                    OMX_U32 crop_start_uv = sVideoFmt.nFrameWidth * i + sRectIn.nLeft + sRectIn.nWidth;
+                    OMX_U32 crop_len_uv = sVideoFmt.nFrameWidth - (sRectIn.nLeft + sRectIn.nWidth);
+                    fsl_osal_memset((OMX_U8*)fb_data[index].pVirtualAddr + y_length + crop_start_uv , 0x80, crop_len_uv);
+                }
+            }
+            if(sVideoFmt.nFrameHeight > sRectIn.nTop + sRectIn.nHeight){
+                OMX_U32 crop_start_y = (sRectIn.nTop + sRectIn.nHeight) * sVideoFmt.nFrameWidth;
+                OMX_U32 crop_start_uv = y_length + crop_start_y/2;
+                fsl_osal_memset((OMX_U8*)fb_data[index].pVirtualAddr + crop_start_y , 0x10, y_length - crop_start_y);
+                fsl_osal_memset((OMX_U8*)fb_data[index].pVirtualAddr + crop_start_uv, 0x80, (y_length - crop_start_y)/2);
+            }
+            break;
+        }
+
+        case OMX_COLOR_FormatYUV420Planar:
+        {
+            ASSERT(fb_data[index].nLength >= y_length *3/2);
+            if(sVideoFmt.nFrameWidth > sRectIn.nLeft + sRectIn.nWidth){
+                for(OMX_U32 i = 0; i < sRectIn.nTop + sRectIn.nHeight ; i++){
+                    OMX_U32 crop_start_y = sVideoFmt.nFrameWidth * i + sRectIn.nLeft + sRectIn.nWidth;
+                    OMX_U32 crop_len_y = sVideoFmt.nFrameWidth - (sRectIn.nLeft + sRectIn.nWidth);
+                    fsl_osal_memset((OMX_U8*)fb_data[index].pVirtualAddr + crop_start_y , 0x10, crop_len_y);
+                }
+                for(OMX_U32 i = 0; i < (sRectIn.nTop + sRectIn.nHeight)/ 2 ; i++){
+                    OMX_U32 crop_start_uv = (sVideoFmt.nFrameWidth * i + sRectIn.nLeft + sRectIn.nWidth ) / 2;
+                    OMX_U32 crop_len_uv = (sVideoFmt.nFrameWidth - (sRectIn.nLeft + sRectIn.nWidth) ) / 2;
+                    fsl_osal_memset((OMX_U8*)fb_data[index].pVirtualAddr + y_length + crop_start_uv , 0x80, crop_len_uv);
+                    fsl_osal_memset((OMX_U8*)fb_data[index].pVirtualAddr + y_length /4 * 5 + crop_start_uv , 0x80, crop_len_uv);
+                }
+            }
+            if(sVideoFmt.nFrameHeight > sRectIn.nTop + sRectIn.nHeight){
+                OMX_U32 crop_start_y = (sRectIn.nTop + sRectIn.nHeight) * sVideoFmt.nFrameWidth;
+                OMX_U32 crop_start_u = y_length + crop_start_y/4;
+                OMX_U32 crop_start_v = y_length / 4 * 5 + crop_start_y/4;
+                fsl_osal_memset((OMX_U8*)fb_data[index].pVirtualAddr + crop_start_y , 0x10, y_length - crop_start_y);
+                fsl_osal_memset((OMX_U8*)fb_data[index].pVirtualAddr + crop_start_u, 0x80, (y_length - crop_start_y)/4);
+                fsl_osal_memset((OMX_U8*)fb_data[index].pVirtualAddr + crop_start_v, 0x80, (y_length - crop_start_y)/4);
+            }
+            break;
+        }
+
+        case OMX_COLOR_Format16bitRGB565:
+        {
+            ASSERT(fb_data[index].nLength >= y_length *2);
+            if(sVideoFmt.nFrameWidth > sRectIn.nLeft + sRectIn.nWidth){
+                for(OMX_U32 i = 0; i < sRectIn.nTop + sRectIn.nHeight ; i++){
+                    OMX_U32 crop_start = (sVideoFmt.nFrameWidth * i + sRectIn.nLeft + sRectIn.nWidth) * 2;
+                    OMX_U32 crop_len = (sVideoFmt.nFrameWidth - (sRectIn.nLeft + sRectIn.nWidth)) * 2;
+                    fsl_osal_memset((OMX_U8*)fb_data[index].pVirtualAddr + crop_start , 0, crop_len);
+                }
+            }
+            if(sVideoFmt.nFrameHeight > sRectIn.nTop + sRectIn.nHeight){
+                OMX_U32 crop_start = ((sRectIn.nTop + sRectIn.nHeight) * sVideoFmt.nFrameWidth) * 2;
+                fsl_osal_memset((OMX_U8*)fb_data[index].pVirtualAddr + crop_start , 0, fb_data[index].nLength - crop_start);
+            }
+            break;
+        }
+
+        case OMX_COLOR_FormatYUV422Planar:
+        {
+            ASSERT(fb_data[index].nLength >= y_length *2);
+            if(sVideoFmt.nFrameWidth > sRectIn.nLeft + sRectIn.nWidth){
+                for(OMX_U32 i = 0; i < sRectIn.nTop + sRectIn.nHeight ; i++){
+                    OMX_U32 crop_start_y = sVideoFmt.nFrameWidth * i + sRectIn.nLeft + sRectIn.nWidth;
+                    OMX_U32 crop_len_y = sVideoFmt.nFrameWidth - (sRectIn.nLeft + sRectIn.nWidth);
+                    fsl_osal_memset((OMX_U8*)fb_data[index].pVirtualAddr + crop_start_y , 0x10, crop_len_y);
+                }
+                for(OMX_U32 i = 0; i < (sRectIn.nTop + sRectIn.nHeight) ; i++){
+                    OMX_U32 crop_start_uv = (sVideoFmt.nFrameWidth * i + sRectIn.nLeft + sRectIn.nWidth ) / 2;
+                    OMX_U32 crop_len_uv = (sVideoFmt.nFrameWidth - (sRectIn.nLeft + sRectIn.nWidth) ) / 2;
+                    fsl_osal_memset((OMX_U8*)fb_data[index].pVirtualAddr + y_length + crop_start_uv , 0x80, crop_len_uv);
+                    fsl_osal_memset((OMX_U8*)fb_data[index].pVirtualAddr + y_length /2 * 3 + crop_start_uv , 0x80, crop_len_uv);
+                }
+            }
+            if(sVideoFmt.nFrameHeight > sRectIn.nTop + sRectIn.nHeight){
+                OMX_U32 crop_start_y = (sRectIn.nTop + sRectIn.nHeight) * sVideoFmt.nFrameWidth;
+                OMX_U32 crop_start_u = y_length + crop_start_y/2;
+                OMX_U32 crop_start_v = y_length / 2 * 3 + crop_start_y/2;
+                fsl_osal_memset((OMX_U8*)fb_data[index].pVirtualAddr + crop_start_y , 0x10, y_length - crop_start_y);
+                fsl_osal_memset((OMX_U8*)fb_data[index].pVirtualAddr + crop_start_u, 0x80, (y_length - crop_start_y)/2);
+                fsl_osal_memset((OMX_U8*)fb_data[index].pVirtualAddr + crop_start_v, 0x80, (y_length - crop_start_y)/2);
+            }
+            break;
+        }
+
+        case OMX_COLOR_FormatYUV422SemiPlanar:
+        {
+            ASSERT(fb_data[index].nLength >= y_length * 2);
+            if(sVideoFmt.nFrameWidth > sRectIn.nLeft + sRectIn.nWidth){
+                for(OMX_U32 i = 0; i < sRectIn.nTop + sRectIn.nHeight ; i++){
+                    OMX_U32 crop_start_y = sVideoFmt.nFrameWidth * i + sRectIn.nLeft + sRectIn.nWidth;
+                    OMX_U32 crop_len_y = sVideoFmt.nFrameWidth - (sRectIn.nLeft + sRectIn.nWidth);
+                    fsl_osal_memset((OMX_U8*)fb_data[index].pVirtualAddr + crop_start_y , 0x10, crop_len_y);
+                }
+                for(OMX_U32 i = 0; i < (sRectIn.nTop + sRectIn.nHeight); i++){
+                    OMX_U32 crop_start_uv = sVideoFmt.nFrameWidth * i + sRectIn.nLeft + sRectIn.nWidth;
+                    OMX_U32 crop_len_uv = sVideoFmt.nFrameWidth - (sRectIn.nLeft + sRectIn.nWidth);
+                    fsl_osal_memset((OMX_U8*)fb_data[index].pVirtualAddr + y_length + crop_start_uv , 0x80, crop_len_uv);
+                }
+            }
+            if(sVideoFmt.nFrameHeight > sRectIn.nTop + sRectIn.nHeight){
+                OMX_U32 crop_start_y = (sRectIn.nTop + sRectIn.nHeight) * sVideoFmt.nFrameWidth;
+                OMX_U32 crop_start_uv = y_length + crop_start_y;
+                fsl_osal_memset((OMX_U8*)fb_data[index].pVirtualAddr + crop_start_y , 0x10, y_length - crop_start_y);
+                fsl_osal_memset((OMX_U8*)fb_data[index].pVirtualAddr + crop_start_uv, 0x80, y_length - crop_start_y);
+            }
+            break;
+        }
+
+        default:
+            LOG_ERROR("Not supported color format %d by surface!", sVideoFmt.eColorFormat);
+            break;
+    }
+
+    return;
 
 }
 

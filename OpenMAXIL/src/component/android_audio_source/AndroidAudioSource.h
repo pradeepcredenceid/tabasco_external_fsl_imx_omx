@@ -1,5 +1,5 @@
 /**
- *  Copyright (c) 2009-2013, Freescale Semiconductor Inc.,
+ *  Copyright (c) 2009-2015, Freescale Semiconductor Inc.,
  *  All Rights Reserved.
  *
  *  The following programs are the sole property of Freescale Semiconductor Inc.,
@@ -72,6 +72,7 @@ class AndroidAudioSource : public AudioSource {
         fsl_osal_mutex lock;
 		OMX_TICKS nCurTS;
         OMX_S32 EnqueueBufferIdx;
+        android::String16 s16PackageName;
 
 };
 

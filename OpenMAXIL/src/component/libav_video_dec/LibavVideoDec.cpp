@@ -324,6 +324,7 @@ OMX_ERRORTYPE LibavVideoDec::GetParameter(
                     ret = OMX_ErrorUnsupportedIndex;
                     break;
             }
+            break;
         default:
             ret = OMX_ErrorUnsupportedIndex;
             break;
@@ -648,9 +649,10 @@ OMX_ERRORTYPE LibavVideoDec::ProcessQOS()
     nTimeStamp=QueryStreamTs();
     if(nTimeStamp >= 0 && pClock!=NULL)
     {
-        OMX_INIT_STRUCT(&sScale, OMX_TIME_CONFIG_SCALETYPE);
-        OMX_GetConfig(pClock, OMX_IndexConfigTimeScale, &sScale);
-        if(!IS_NORMAL_PLAY(sScale.xScale)){
+        OMX_TIME_CONFIG_PLAYBACKTYPE sPlayback;
+        OMX_INIT_STRUCT(&sPlayback, OMX_TIME_CONFIG_PLAYBACKTYPE);
+        OMX_GetConfig(pClock, OMX_IndexConfigPlaybackRate, &sPlayback);
+        if(sPlayback.ePlayMode != NORMAL_MODE){
             return OMX_ErrorNone;
         }
         OMX_INIT_STRUCT(&sCur, OMX_TIME_CONFIG_TIMESTAMPTYPE);

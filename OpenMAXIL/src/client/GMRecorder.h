@@ -1,5 +1,5 @@
 /**
- *  Copyright (c) 2011-2013, Freescale Semiconductor Inc.,
+ *  Copyright (c) 2011-2015, Freescale Semiconductor Inc.,
  *  All Rights Reserved.
  *
  *  The following programs are the sole property of Freescale Semiconductor Inc.,
@@ -78,7 +78,8 @@ class GMRecorder {
 		OMX_ERRORTYPE setParamVideoTimeScale(OMX_S32 timeScale);
 		OMX_ERRORTYPE setParamTimeLapseEnable(OMX_S32 timeLapseEnable);
 		OMX_ERRORTYPE setParamTimeBetweenTimeLapseFrameCapture(OMX_S64 timeUs);
-
+        OMX_ERRORTYPE setParamCaptureFps(OMX_S32 fps);
+        OMX_ERRORTYPE setParamAndroidVersion(OMX_U8* str, OMX_U32 length);
 		OMX_ERRORTYPE registerEventHandler(OMX_PTR context, RECORDER_EVENTHANDLER handler);
 		OMX_ERRORTYPE prepare();
 		OMX_ERRORTYPE start();
@@ -94,6 +95,9 @@ class GMRecorder {
         OMX_ERRORTYPE AddSysEvent(GM_SYSEVENT *pSysEvent);
         OMX_ERRORTYPE GetSysEvent(GM_SYSEVENT *pSysEvent);
         OMX_ERRORTYPE setClient(const OMX_U16 * clientName, OMX_S32 clientUID);
+        OMX_ERRORTYPE setPackageName(const OMX_U16 * packageName);
+        OMX_ERRORTYPE getBufferProducer(OMX_PTR *ppBufferProducer);
+        OMX_ERRORTYPE setInputSurface(OMX_PTR inputSurface);
 
         OMX_PTR PmContext;
     private:
@@ -130,6 +134,8 @@ class GMRecorder {
         OMX_TICKS MediaDuration;
         OMX_BOOL bError;
         OMX_BOOL bMalFormat;
+        OMX_PTR pBufferProducer;
+        OMX_PTR pInputSurface;
 
 		CP_PIPETYPE *hPipe;
 
@@ -169,7 +175,11 @@ class GMRecorder {
 		OMX_S64 gm_timeBetweenTimeLapseFrameCaptureUs;
 		const OMX_U16 * gm_clientName;
 		OMX_S32 gm_clientUID;
-
+		const OMX_U16 * gm_packageName;
+        OMX_S32 gm_capture_fps;
+        OMX_S64 gm_timeBetweenCaptureUs;//add for camera source
+        OMX_U8* gm_androidVersion;
+        OMX_U32 gm_androidVersionLen;
 		OMX_ERRORTYPE MediaTypeInspectBySubfix(OMX_STRING path);
         OMX_ERRORTYPE LoadComponent(OMX_STRING role, GMComponent **ppComponent);
         OMX_ERRORTYPE LoadMuxerComponent();

@@ -60,14 +60,13 @@ class VideoRender : public ComponentBase {
         OMX_PTR hVisitorLib;
         VFV_INTERFACE hVistorItf;
         OMX_PTR hVistor;
-        OMX_BOOL bResetRefTime;
+        OMX_PLAYBACK_MODE playbackMode;
         OMX_ERRORTYPE InitComponent();
         OMX_ERRORTYPE DeInitComponent();
         virtual OMX_ERRORTYPE InitRenderComponent();
         virtual OMX_ERRORTYPE DeInitRenderComponent();
         OMX_ERRORTYPE DoLoaded2Idle();
         OMX_ERRORTYPE DoIdle2Loaded();
-        OMX_ERRORTYPE DoPause2Exec();
         OMX_ERRORTYPE GetConfig(OMX_INDEXTYPE nParamIndex, OMX_PTR pStructure);
         OMX_ERRORTYPE SetConfig(OMX_INDEXTYPE nParamIndex, OMX_PTR pStructure);
         virtual OMX_ERRORTYPE RenderGetConfig(OMX_INDEXTYPE nParamIndex, OMX_PTR pStructure);

@@ -161,6 +161,12 @@
 #define   OMX_IndexParamParserLowLatency FSL_INDEXTYPE(60)//for rtp/udp streaming
 #define   OMX_IndexParamAndroidAdaptivePlayback FSL_INDEXTYPE(61)
 #define   OMX_IndexParamAudioApe FSL_INDEXTYPE(62)
+#define   OMX_IndexParamPackageName FSL_INDEXTYPE(63)
+#define   OMX_IndexConfigPlaybackRate FSL_INDEXTYPE(64)
+#define   OMX_IndexParamBufferProducer FSL_INDEXTYPE(65)
+#define   OMX_IndexParamBufferConsumer FSL_INDEXTYPE(66)
+#define   OMX_IndexParamCaptureFps FSL_INDEXTYPE(67)
+#define   OMX_IndexParamAndroidVersion FSL_INDEXTYPE(68)
 
 
 /**< fsl defined macro utils */
@@ -190,15 +196,7 @@
 #define Q16_SHIFT (0x10000)
 #endif
 #define INVALID_TS (-1)
-#define MAX_RATE (1.9)
-#define MIN_RATE (0.1)
-#define MAX_TRICK_MODE_RATE (16)
-#define MIN_TRICK_FORWARD_RATE 2
-#define MIN_TRICK_REWIND_RATE -2
-#define IS_TRICK_PLAY(scale) ((scale) <= MIN_TRICK_REWIND_RATE * Q16_SHIFT || (scale) >= MIN_TRICK_FORWARD_RATE * Q16_SHIFT)
-#define IS_TRICK_REWIND(scale) ((scale) <= MIN_TRICK_REWIND_RATE * Q16_SHIFT)
-#define IS_TRICK_FORWARD(scale) ((scale) >= MIN_TRICK_FORWARD_RATE * Q16_SHIFT)
-#define IS_NORMAL_PLAY(scale) ((scale) >= MIN_RATE * Q16_SHIFT && (scale) <= MAX_RATE * Q16_SHIFT)
+
 
 #define OMX_INIT_STRUCT(ptr, type) \
     do { \
@@ -579,6 +577,34 @@ typedef struct
     OMX_U32 nMaxFrameWidth;
     OMX_U32 nMaxFrameHeight;
 }OMX_PARAM_PREPARE_ANDROID_ADAPTIVE_PLAYBACK;
+
+typedef enum {
+    NORMAL_MODE = 0, //normal play mode, AV is sync
+    FAST_FORWARD_TRICK_MODE,
+    FAST_BACKWARD_TRICK_MODE
+}OMX_PLAYBACK_MODE;
+
+typedef struct OMX_TIME_CONFIG_PLAYBACKTYPE {
+    OMX_U32 nSize;                  /**< size of the structure in bytes */
+    OMX_VERSIONTYPE nVersion;       /**< OMX specification version information */
+    OMX_S32 xScale;
+    OMX_PLAYBACK_MODE ePlayMode;
+    OMX_PTR pPrivateData;
+    OMX_U32 nPrivateDataSize;
+} OMX_TIME_CONFIG_PLAYBACKTYPE;
+
+typedef struct {
+    OMX_U32 nSize;
+    OMX_VERSIONTYPE nVersion;
+    OMX_PTR pBufferProducer;
+}OMX_PARAM_BUFFER_PRODUCER;
+
+typedef struct {
+    OMX_U32 nSize;
+    OMX_VERSIONTYPE nVersion;
+    OMX_U8* pString;
+    OMX_U32 nLength;
+}OMX_PARAM_ANDROID_VERSION;
 
 #endif
 

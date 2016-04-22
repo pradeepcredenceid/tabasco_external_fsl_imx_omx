@@ -236,6 +236,7 @@ int32 FslParser::ImportIndexTable(FslParserHandle  parserHandle)
     FILE *fp_index = NULL;
     uint8 * buffer = NULL;
     uint32 buffer_size = 0;
+    uint32 actual_size = 0;
 
     LOG_DEBUG("%s,%d.\n",__FUNCTION__,__LINE__);
     fp_index = fopen(index_file_name, (const char *)"rb");
@@ -246,7 +247,8 @@ int32 FslParser::ImportIndexTable(FslParserHandle  parserHandle)
         goto bail;
     }
 
-    if(0 == fread(&buffer_size, sizeof(uint32), 1, fp_index))
+    actual_size = fread(&buffer_size, sizeof(uint32), 1, fp_index);
+    if(sizeof(uint32) != actual_size)
     {
         err = (int32)PARSER_READ_ERROR;
         goto bail;
@@ -261,12 +263,14 @@ int32 FslParser::ImportIndexTable(FslParserHandle  parserHandle)
             goto bail;
         }
 
-        if(0 == fread(buffer, buffer_size, 1, fp_index))
+        actual_size = fread(buffer, buffer_size, 1, fp_index);
+        if(0 == actual_size)
         {
             err = (int32)PARSER_READ_ERROR;
             goto bail;
         }
 
+        buffer_size = actual_size;
         err =  IParser->importIndex( parserHandle,buffer, buffer_size);
         if(PARSER_SUCCESS != err)
         {
@@ -1183,7 +1187,7 @@ OMX_ERRORTYPE FslParser::InitCoreParser()
         { (char *)"performer", USER_DATA_PERFORMER},
         { (char *)"keywords", USER_DATA_KEYWORDS},
         { (char *)"tool", USER_DATA_TOOL},
-
+        //{ (char *)"android_version", USER_DATA_ANDROID_VERSION},do not show this field in metadata
 	};
 
 	OMX_U32 kNumMapEntries = sizeof(kKeyMap) / sizeof(kKeyMap[0]);
@@ -1205,14 +1209,34 @@ OMX_ERRORTYPE FslParser::InitCoreParser()
 				if(metaDataSize > MAX_USER_DATA_STRING_LENGTH)
 					metaDataSize = MAX_USER_DATA_STRING_LENGTH;
 
+                if(kKeyMap[i].key != USER_DATA_ANDROID_VERSION)
 				SetMetadata(kKeyMap[i].tag, (OMX_STRING)metaData, (OMX_U32)metaDataSize);
 			}
 
 		}
 
-		userDataFormat = USER_DATA_FORMAT_JPEG;
-		IParser->getMetaData(parserHandle, USER_DATA_ARTWORK, &userDataFormat, &metaData, \
-				&metaDataSize);
+        //capture fps
+        userDataFormat = USER_DATA_FORMAT_FLOAT32_BE;
+        IParser->getMetaData(parserHandle, USER_DATA_CAPTURE_FPS, &userDataFormat, &metaData, \
+        &metaDataSize);
+        if(4 == metaDataSize && metaData){
+            char tmp[20] = {0};
+            uint32 len = 0;
+            uint32 value= 0;
+            float data = 0.0;
+            value += *metaData << 24;
+            value += *(metaData+1) << 16;
+            value += *(metaData+2) << 8;
+            value += *(metaData+3);
+            data = *(float *)&value;
+            len = sprintf((char*)&tmp, "%f", data);
+            LOG_DEBUG("get fps=%s,len=%d",tmp,len);
+            SetMetadata((OMX_STRING)"capture_fps", (OMX_STRING)tmp, (OMX_U32)len);
+        }
+
+        userDataFormat = USER_DATA_FORMAT_JPEG;
+        IParser->getMetaData(parserHandle, USER_DATA_ARTWORK, &userDataFormat, &metaData, \
+            &metaDataSize);
 
 		if(metaData && metaDataSize)
 		{
@@ -1547,7 +1571,8 @@ OMX_ERRORTYPE FslParser::InstanceInit()
     OMX_ERRORTYPE ret = OMX_ErrorNone;
     int32 err = PARSER_SUCCESS;
 
-    fsl_osal_mutex_init(&sParserMutex,fsl_osal_mutex_normal);
+    if(E_FSL_OSAL_SUCCESS != fsl_osal_mutex_init(&sParserMutex, fsl_osal_mutex_normal))
+        return OMX_ErrorInsufficientResources;
 
     LibMgr = FSL_NEW(ShareLibarayMgr, ());
     if(LibMgr == NULL)
@@ -1959,6 +1984,8 @@ OMX_ERRORTYPE FslParser::GetOneSample(MediaBuf **pBuf, uint32 *data_size, uint32
         (*pBuf)->buf.nFlags |= OMX_BUFFERFLAG_ENDOFFRAME;
     if (sampleFlag & FLAG_SYNC_SAMPLE)
         (*pBuf)->buf.nFlags |= OMX_BUFFERFLAG_SYNCFRAME;
+    if (sampleFlag & FLAG_SAMPLE_CODEC_DATA)
+        (*pBuf)->buf.nFlags |= OMX_BUFFERFLAG_CODECCONFIG;
 
     AddBufferToReadyList(track_num_got, (void*)(*pBuf));
 
@@ -2849,7 +2876,7 @@ OMX_ERRORTYPE FslParser::GetParameter(
             fsl_osal_memcpy((void *)pComponentParameterStructure,(void *)&tracks[nActiveAudioNum].audio_type.opus_type, sizeof (OMX_AUDIO_PARAM_OPUSTYPE));
             break;
         case OMX_IndexParamAudioApe:
-            fsl_osal_memcpy((void *)pComponentParameterStructure,(void *)&tracks[nActiveAudioNum].audio_type.ape_type, sizeof (OMX_AUDIO_PARAM_OPUSTYPE));
+            fsl_osal_memcpy((void *)pComponentParameterStructure,(void *)&tracks[nActiveAudioNum].audio_type.ape_type, sizeof (OMX_AUDIO_PARAM_APETYPE));
             break;
         default:
             ret = Parser::GetParameter(nParamIndex, pComponentParameterStructure);
@@ -2918,8 +2945,10 @@ uint8 * FslParser::GetEmptyBufFromList(uint32 track_num,uint32 *size, void ** bu
             return NULL;
         fsl_osal_memset(tmp, 0, sizeof(MediaBuf));
         tmp->buf.pBuffer = (uint8 *)FSL_MALLOC(*size);
-        if (!tmp->buf.pBuffer)
+        if (!tmp->buf.pBuffer) {
+            FSL_FREE(tmp);
             return NULL;
+        }
         tmp->buf.nAllocLen = *size;
 
         //printf("track %d get empty buffer %p by allocate new size %d, total allocated %d\n", track_num, tmp->buf.pBuffer,*size,  ++track->total_allocated);

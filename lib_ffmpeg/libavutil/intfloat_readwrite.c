@@ -27,6 +27,7 @@
 
 #include <stdlib.h>
 #include <stdint.h>
+#include <string.h>
 #include "mathematics.h"
 #include "intfloat_readwrite.h"
 

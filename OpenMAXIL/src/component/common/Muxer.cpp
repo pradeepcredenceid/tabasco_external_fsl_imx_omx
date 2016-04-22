@@ -196,7 +196,7 @@ OMX_ERRORTYPE Muxer::InitComponent()
     OMX_ERRORTYPE ret = OMX_ErrorNone;
     OMX_PARAM_PORTDEFINITIONTYPE sPortDef;
 
-    fsl_osal_memset(pBufferHdr, 0, sizeof(OMX_BUFFERHEADERTYPE) * MAX_PORTS);
+    fsl_osal_memset(pBufferHdr, 0, sizeof(OMX_BUFFERHEADERTYPE*) * MAX_PORTS);
     fsl_osal_memset(Tracks, 0, sizeof(TRACK_INFO) * MAX_PORTS);
     fsl_osal_memcpy(TrackParameter, 0, sizeof(TrackParameter) * MAX_PORTS);
     nMinTrackTs = 0;
@@ -216,6 +216,9 @@ OMX_ERRORTYPE Muxer::InitComponent()
 	nLatitudex= -3600000;
 	bAddSampleDone = OMX_FALSE;
     nRotateDegree = 0;
+    nCaptureFps = -1;
+    pAndroidVersion = NULL;
+    nAndroidVersionLen = 0;
 
     fsl_osal_memset(&streamOps, 0, sizeof(FslFileStream));
     streamOps.Open = OpenContentCb;
@@ -632,6 +635,21 @@ OMX_ERRORTYPE Muxer::SetParameter(
 				 nLatitudex= *((OMX_S64*)pStructure);
             }
             break;
+        case OMX_IndexParamCaptureFps:
+            {
+                nCaptureFps = *((OMX_S32*)pStructure);
+            }
+            break;
+        case OMX_IndexParamAndroidVersion:
+            {
+                OMX_PARAM_ANDROID_VERSION *pVersion = (OMX_PARAM_ANDROID_VERSION*)pStructure;
+                OMX_CHECK_STRUCT(pVersion, OMX_PARAM_ANDROID_VERSION, ret);
+                if(ret != OMX_ErrorNone)
+                    break;
+                pAndroidVersion = pVersion->pString;
+                nAndroidVersionLen = pVersion->nLength;
+            }
+            break;
         default:
             ret = OMX_ErrorNotImplemented;
             break;
@@ -689,9 +707,18 @@ OMX_ERRORTYPE Muxer::InitTracks()
 
 OMX_ERRORTYPE Muxer::InitMetaData()
 {
+
 	if (nLongitudex> -3600000 && nLatitudex> -3600000) {
 		AddLocationInfo(nLongitudex, nLatitudex);
 	}
+
+    if(nCaptureFps > 0){
+        AddCaptureFpsInfo(nCaptureFps);
+    }
+
+    if(pAndroidVersion != NULL && nAndroidVersionLen > 0){
+        AddAndroidVersion(pAndroidVersion,nAndroidVersionLen);
+    }
 
     return OMX_ErrorNone;
 }
@@ -758,7 +785,7 @@ OMX_ERRORTYPE Muxer::InitAudioTrack(OMX_U32 nPortIndex)
                 OMX_AUDIO_PARAM_WMATYPE *pWmaPara = NULL;
                 if(bParamSetted == OMX_TRUE)
                     pWmaPara = &TrackParameter[nPortIndex].WmaPara;
-                    ret = AddWmaTrack(nPortIndex, pWmaPara);
+                ret = AddWmaTrack(nPortIndex, pWmaPara);
                 LOG_DEBUG("Add WMA to track #%d, ret = %x\n", nPortIndex, ret);
             }
             break;

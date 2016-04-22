@@ -103,6 +103,12 @@ OMX_ERRORTYPE AudioRender::InitComponent()
 	nTotalReceivedLen = 0;
 	nClockScale = Q16_SHIFT;
 	nDNSeScale = Q16_SHIFT;
+    playbackMode = NORMAL_MODE;
+    pBufferBak = NULL;
+    nBufferBakSize = 0;
+    nDataSize = 0;
+    nDataOffset = 0;
+    bNeedConvertData = OMX_FALSE;
 
 	pInBufferHdr = NULL;
 	pInBufferHdrBak = NULL;
@@ -118,6 +124,9 @@ OMX_ERRORTYPE AudioRender::DeInitComponent()
 		FSL_FREE(pInBufferHdrBak->pBuffer);
 		FSL_FREE(pInBufferHdrBak);
 	}
+
+    if(bNeedConvertData)
+        FSL_FREE(pBufferBak);
 
     return OMX_ErrorNone;
 }
@@ -212,7 +221,7 @@ OMX_ERRORTYPE AudioRender::GetConfig(
 {
     OMX_ERRORTYPE ret = OMX_ErrorNone;
 
-    switch (nParamIndex) {
+    switch ((int)nParamIndex) {
         case OMX_IndexConfigAudioVolume:
             {
                 OMX_AUDIO_CONFIG_VOLUMETYPE *pVolume;
@@ -243,7 +252,7 @@ OMX_ERRORTYPE AudioRender::SetConfig(
 {
     OMX_ERRORTYPE ret = OMX_ErrorNone;
 
-    switch (nParamIndex) {
+    switch ((int)nParamIndex) {
         case OMX_IndexConfigAudioVolume:
             {
                 OMX_AUDIO_CONFIG_VOLUMETYPE *pVolume;
@@ -375,6 +384,7 @@ OMX_ERRORTYPE AudioRender::ProcessInputBufferFlag()
 		nTotalConsumeredLen = 0;
         nTotalReceivedLen = 0;
         ResetDevice();
+        bNeedConvertData = IsNeedConvertData();
 	}
 
 	if(pInBufferHdr->nFlags & OMX_BUFFERFLAG_EOS)
@@ -668,50 +678,89 @@ OMX_ERRORTYPE AudioRender::RenderPeriod()
 	OMX_U32 nActuralLen;
 	OMX_U32 nDelayLen;
 	OMX_S64 PlayingTime;
+    OMX_U32 nConsumedLen;
 
-	AudioRenderRingBuffer.BufferGet(&pBuffer, nWriteOutLen, &nActuralLen);
+    if(nDataSize == 0) {
+	    AudioRenderRingBuffer.BufferGet(&pBuffer, nWriteOutLen, &nActuralLen);
 
-	LOG_LOG("nWriteOutLen = %d\t nActuralLen = %d\n", nWriteOutLen, nActuralLen);
-	AudioRenderFadeInFadeOut.Process(pBuffer, nActuralLen);
+	    LOG_LOG("nWriteOutLen = %d\t nActuralLen = %d\n", nWriteOutLen, nActuralLen);
+	    AudioRenderFadeInFadeOut.Process(pBuffer, nActuralLen);
 
-	ret = WriteDevice(pBuffer, nActuralLen);
-	if (ret != OMX_ErrorNone)
+        nDataOffset = 0;
+
+        //allocate buffer only if need to convert data, or pBufferBak is equal to pBuffer
+        if(bNeedConvertData) {
+            if(nBufferBakSize < nActuralLen) {
+                FSL_FREE(pBufferBak);
+                nBufferBakSize = nActuralLen;
+                pBufferBak = (OMX_U8 *)FSL_MALLOC(nBufferBakSize);
+                if(!pBufferBak)
+                    return OMX_ErrorInsufficientResources;
+            }
+            if(OMX_ErrorNone != ConvertData(pBufferBak, &nDataSize, pBuffer, nActuralLen))
+                return OMX_ErrorUndefined;
+        }
+        else {
+            pBufferBak = pBuffer;
+            nDataSize = nActuralLen;
+        }
+    }
+
+    nConsumedLen = 0;
+
+    ret = WriteDevice(pBufferBak + nDataOffset, nDataSize, &nConsumedLen);
+    nDataSize -= nConsumedLen;
+    nDataOffset += nConsumedLen;
+    nConsumedLen = DataLenOut2In(nConsumedLen);
+
+    if(ret == OMX_ErrorNotComplete) {
+        //in non blocking write, buffer maybe not write the full content to audio sink, sleep 10ms.
+        usleep(10000);
+        ret = OMX_ErrorNone;
+    }
+	else if (ret != OMX_ErrorNone)
 	{
-		LOG_ERROR("Can't write audio data to device.\n");
-		return ret;
+	    LOG_ERROR("Can't write audio data to device.\n");
+	    return ret;
 	}
 
-	AudioRenderRingBuffer.BufferConsumered(nActuralLen);
-	if (bLiveMode == OMX_TRUE) {
-        TS_Manager.Consumered(nActuralLen);
+    if(nConsumedLen > 0) {
+        AudioRenderRingBuffer.BufferConsumered(nConsumedLen);
+        if (bLiveMode == OMX_TRUE) {
+            TS_Manager.Consumered(nConsumedLen);
+        }
     }
 
 	DeviceDelay(&nDelayLen);
 	if (bLiveMode == OMX_TRUE) {
-		OMX_TICKS TS_PerFrame;
-		TS_PerFrame = (OMX_U64)nActuralLen/nSampleSize*OMX_TICKS_PER_SECOND/PcmMode.nSamplingRate;
-		TS_Manager.TS_SetIncrease(TS_PerFrame);
+	    OMX_TICKS TS_PerFrame;
+	    TS_PerFrame = (OMX_U64)nConsumedLen/nSampleSize*OMX_TICKS_PER_SECOND/PcmMode.nSamplingRate;
+	    TS_Manager.TS_SetIncrease(TS_PerFrame);
 
         if (bLiveMode == OMX_TRUE) {
             TS_Manager.TS_Get(&PlayingTime);
         }
 
-		PlayingTime = (PlayingTime - (nDelayLen/nSampleSize * OMX_TICKS_PER_SECOND) / PcmMode.nSamplingRate) * ((float)nDNSeScale / Q16_SHIFT);
+	    PlayingTime = (PlayingTime - (nDelayLen/nSampleSize * OMX_TICKS_PER_SECOND) / PcmMode.nSamplingRate) * ((float)nDNSeScale / Q16_SHIFT);
 	} else {
-		nTotalConsumeredLen += nActuralLen;
-		PlayingTime = StartTime.nTimestamp + ((nTotalConsumeredLen - nDelayLen)/nSampleSize * OMX_TICKS_PER_SECOND) / PcmMode.nSamplingRate * ((float)nDNSeScale / Q16_SHIFT);
+	    nTotalConsumeredLen += nConsumedLen;
+	    PlayingTime = StartTime.nTimestamp + ((nTotalConsumeredLen - nDelayLen)/nSampleSize * OMX_TICKS_PER_SECOND) / PcmMode.nSamplingRate * ((float)nDNSeScale / Q16_SHIFT);
 	}
 
 	ReferTime.nTimestamp = PlayingTime;
-	LOG_LOG("Audio render total render data: %lld\n", nTotalConsumeredLen);
-	LOG_LOG("Set reference time to clock: %lld\n", PlayingTime);
+    LOG_LOG("Audio render total render data: %lld\n", nTotalConsumeredLen);
+    LOG_LOG("Set reference time to clock: %lld\n", PlayingTime);
 	ClockSetConfig(OMX_IndexConfigTimeCurrentAudioReference, &ReferTime);
 	LOG_LOG("RenderPeriod finished.\n");
-
     return ret;
 }
 
 OMX_ERRORTYPE AudioRender::SelectDevice(OMX_PTR device)
+{
+    return OMX_ErrorNone;
+}
+
+OMX_ERRORTYPE AudioRender::SetPlaybackRate(OMX_PTR rate)
 {
     return OMX_ErrorNone;
 }
@@ -762,16 +811,16 @@ OMX_ERRORTYPE AudioRender::ProcessClkBuffer()
 
 	}
 	else if (pTimeBuffer->eUpdateType == OMX_TIME_UpdateScaleChanged)
-	{
-		OMX_U32 nClockScalePre = nClockScale;
+    {
+		OMX_U32 playbackModePre = playbackMode;
+        OMX_TIME_CONFIG_PLAYBACKTYPE *pPlayback = (OMX_TIME_CONFIG_PLAYBACKTYPE *)pTimeBuffer->nClientPrivate;
 		nClockScale = pTimeBuffer->xScale;
+        playbackMode = pPlayback->ePlayMode;
 		LOG_DEBUG("nClockScale = %d\n", nClockScale);
-		if (nClockScale <= (OMX_S32)(MAX_RATE * Q16_SHIFT)
-				&& nClockScale >= (OMX_S32)(MIN_RATE * Q16_SHIFT))
+		if (playbackMode == NORMAL_MODE)
 		{
-			OMX_ERRORTYPE ret = OMX_ErrorNone;
-			if (nClockScalePre <= (OMX_S32)(MAX_RATE * Q16_SHIFT)
-					&& nClockScalePre >= (OMX_S32)(MIN_RATE * Q16_SHIFT))
+		    OMX_ERRORTYPE ret = OMX_ErrorNone;
+			if (playbackModePre == NORMAL_MODE)
 			{
 				ret = DrainDevice();
 				if (ret != OMX_ErrorNone)
@@ -781,9 +830,8 @@ OMX_ERRORTYPE AudioRender::ProcessClkBuffer()
 				}
 			}
 
-			ret = SetDevice();
-			if(ret != OMX_ErrorNone) {
-				LOG_WARNING("Set device fail.\n");
+            ret = SetPlaybackRate(pPlayback->pPrivateData);
+            if(ret != OMX_ErrorNone) {
 				ports[CLK_PORT]->SendBuffer(pClockBufferHdr);
 				bHeardwareError = OMX_TRUE;
 				SendEvent(OMX_EventError, ret, 0, NULL);
@@ -797,6 +845,7 @@ OMX_ERRORTYPE AudioRender::ProcessClkBuffer()
 			AudioRenderFadeInFadeOut.Create(PcmMode.nChannels, PcmMode.nSamplingRate, \
 					PcmMode.nBitPerSample, nFadeInFadeOutProcessLen, 2);
 		}
+
 	}
 	else
 	{
@@ -834,7 +883,7 @@ OMX_ERRORTYPE AudioRender::DoLoaded2Idle()
 	nAudioDataWriteThreshold = nFadeInFadeOutProcessLen + nWriteOutLen;
 	RINGBUFFER_ERRORTYPE BufferRet = RINGBUFFER_SUCCESS;
 	/** As speed change, ring buffer should use the largest writen threshold */
-	OMX_U32 nRingBufferSize = (OMX_U32)(nAudioDataWriteThreshold * MAX_RATE);
+	OMX_U32 nRingBufferSize = (OMX_U32)(nAudioDataWriteThreshold << 4);
 	LOG_DEBUG("Aurio render nRingBufferSize = %d\n", nRingBufferSize);
 	BufferRet = AudioRenderRingBuffer.BufferCreate(nRingBufferSize);
 	if (BufferRet != RINGBUFFER_SUCCESS)
@@ -1037,5 +1086,21 @@ OMX_ERRORTYPE AudioRender::FlushComponent(
 
 	return OMX_ErrorNone;
 }
+
+OMX_ERRORTYPE AudioRender::ConvertData(OMX_U8* pOut, OMX_U32 *nOutSize, OMX_U8 *pIn, OMX_U32 nInSize)
+{
+    return OMX_ErrorNone;
+}
+
+OMX_BOOL AudioRender::IsNeedConvertData()
+{
+    return OMX_FALSE;
+}
+
+OMX_U32 AudioRender::DataLenOut2In(OMX_U32 nLength)
+{
+    return nLength;
+}
+
 
 /* File EOF */

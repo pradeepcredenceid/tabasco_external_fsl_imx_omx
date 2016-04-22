@@ -26,7 +26,6 @@ class IpulibRender : public VideoRender {
     public:
         IpulibRender();
     private:
-        OMX_U32 nFrame;
         OMX_BOOL bInitDev;
         fsl_osal_mutex lock;
         int mIpuFd;
