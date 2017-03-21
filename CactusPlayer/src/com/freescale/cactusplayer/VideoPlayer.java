@@ -1,5 +1,5 @@
  /*
- * Copyright (C) 2015 Freescale Semiconductor, Inc.
+ * Copyright (C) 2013-2016 Freescale Semiconductor, Inc.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -85,7 +85,8 @@ import android.database.ContentObserver;
 import android.provider.Settings;
 import android.hardware.display.DisplayManager;
 import android.net.wifi.WifiManager;
-import com.freescale.media.FslMediaPlayer;
+import android.media.PlaybackParams;
+import com.freescale.cactusplayer.utils.PathUtils;
 public class VideoPlayer extends Activity implements HdmiApplication.Callback,
     SeekBar.OnSeekBarChangeListener {
         private static final String TAG   = "Cactus";
@@ -101,7 +102,7 @@ public class VideoPlayer extends Activity implements HdmiApplication.Callback,
     //------------------------------------------------------------------------------------
     // widgets
     //-----------------------------------------------------------------------------------
-        private FslMediaPlayer mMediaPlayer = null;
+        private MediaPlayer mMediaPlayer = null;
     //private   SurfaceHolder mPlayerSurfaceHolder = null;
         private int         mVideoWidth;
         private int         mVideoHeight;
@@ -188,7 +189,7 @@ public class VideoPlayer extends Activity implements HdmiApplication.Callback,
         private final static String IMEDIA_PLAYER = "android.media.IMediaPlayer";
         private static final int INVOKE_ID_SELECT_TRACK = 4;
 
-        private static final float forward_speed[] = {0.5f, 1.5f, 2, 4, 8, 16};
+        private static final float forward_speed[] = {0.5f, 1.5f, 2, 4};
         private static final float backward_speed[] = {-2, -4, -8, -16};
         private int forward_speed_index = -1;
         private int backward_speed_index = -1;
@@ -256,11 +257,10 @@ public class VideoPlayer extends Activity implements HdmiApplication.Callback,
 			return;
 		}
 
-		 uri1 = intent.getData();
+		uri1 = intent.getData();
 		if(uri1 != null) {
 			// set url to load
-			mUrl = uri1.toString();
-
+			mUrl = PathUtils.getPath(this, uri1);
 			mCurrentProgress = 0;
 			// display waiting dialog if possible
 			/*
@@ -625,7 +625,7 @@ public class VideoPlayer extends Activity implements HdmiApplication.Callback,
             mCurPosView.setText(s);
             if(mDuration > 0) {
                 int pos = (int) (mCurPos/1000*1000 * 100 / mDuration + 1);
-                if(pos < 0)
+                if(pos < 0 || mCurPos == 0)
                     pos = 0;
                 else if(pos > 100)
                     pos = 100;
@@ -861,7 +861,7 @@ public class VideoPlayer extends Activity implements HdmiApplication.Callback,
             public void onTimedText(MediaPlayer mp, TimedText text){
                 Log.d(TAG,"onTimeText"+ mPlaySpeed);
                 if(mPlaySpeed == 1){
-                    if(text != null){
+                    if(text != null && null != text.getText()){
                         int start_pos = 0;
                         if(text.getText().startsWith("{\\pos")){
                             start_pos = text.getText().indexOf('}') + 1;
@@ -891,7 +891,7 @@ public class VideoPlayer extends Activity implements HdmiApplication.Callback,
     private void play() {
         if(mUrl != null && mSurfaceHolder != null) {
             try {
-                mMediaPlayer = new FslMediaPlayer();
+                mMediaPlayer = new MediaPlayer();
                 mMediaPlayer.setOnPreparedListener(mPreparedListener);
                 mMediaPlayer.setOnVideoSizeChangedListener(mSizeChangedListener);
                 mDuration = -1;
@@ -1020,42 +1020,26 @@ public class VideoPlayer extends Activity implements HdmiApplication.Callback,
 
             newSpeed = forward_speed[forward_speed_index];
 
-
-            int[] newScale = {(int)(newSpeed * 0x10000)};
-            if(mPlayState == PLAYER_PLAYING){
-                mMediaPlayer.setPlaySpeed(newScale);
-                if(newScale[0] == newSpeed * 0x10000){
-                    mPlaySpeed = newSpeed;
-                    updateButtons(UPDATE_PLAYBACK_SPEED, 0, 0, mPlaySpeed);
-                    backward_speed_index = -1;
-                }
-                else{
-                    Log.d(TAG,"set to new speed " + newSpeed + " failed");
-                    updateButtons(UPDATE_PLAYBACK_SPEED, -1, 0, newSpeed);
-                }
-            }
-            else if(mPlayState == PLAYER_PAUSED){
-                mMediaPlayer.setPlaySpeed(newScale);
-                if(newScale[0] == newSpeed * 0x10000){
-                    mPlaySpeed = newSpeed;
-                    updateButtons(UPDATE_PLAYBACK_SPEED, 0, 0, mPlaySpeed);
-                    backward_speed_index = -1;
+            if(mPlayState == PLAYER_PAUSED || mPlayState == PLAYER_PLAYING){
+                Log.d(TAG,"set speed to " + newSpeed);
+                mMediaPlayer.setPlaybackParams(new PlaybackParams().setSpeed(newSpeed));
+                mPlaySpeed = newSpeed;
+                updateButtons(UPDATE_PLAYBACK_SPEED, 0, 0, mPlaySpeed);
+                backward_speed_index = -1;
+                if(mPlayState == PLAYER_PAUSED)
                     start();
-                }
-                else{
-                    Log.d(TAG,"set to new speed " + newSpeed + " failed");
-                    updateButtons(UPDATE_PLAYBACK_SPEED, -1, 0, newSpeed);
-                }
             }
             else{
                 Log.d(TAG,"wrong state " + mPlayState + " to ff");
             }
+
         }
     }
 
     private void fastBackward() {
         Log.d(TAG,"fastBackward");
-        if(mMediaPlayer != null) {
+
+        if(false){//mMediaPlayer != null) {
             int savedState = -1;
             float newSpeed;
 
@@ -1064,34 +1048,28 @@ public class VideoPlayer extends Activity implements HdmiApplication.Callback,
 
             newSpeed = backward_speed[backward_speed_index];
 
-
             if(mPlayState == PLAYER_PLAYING || mPlayState == PLAYER_PAUSED){
-                int[] newScale = {(int)(newSpeed * 0x10000)};
-                mMediaPlayer.setPlaySpeed(newScale);
-                if(newScale[0] == newSpeed * 0x10000){
-                    // success
-                    mPlaySpeed = newSpeed;
-                    updateButtons(UPDATE_PLAYBACK_SPEED, 0, 0, mPlaySpeed);
-                    forward_speed_index = -1;
-                    if(mPlayState == PLAYER_PAUSED)
-                        start();
-                }
-                else{
-                    Log.d(TAG,"set to new speed " + newSpeed + " failed");
-                    updateButtons(UPDATE_PLAYBACK_SPEED, -1, 0, newSpeed);
-                }
+                Log.d(TAG,"set speed to " + newSpeed);
+                mMediaPlayer.setPlaybackParams(new PlaybackParams().setSpeed(newSpeed));
+                mPlaySpeed = newSpeed;
+                updateButtons(UPDATE_PLAYBACK_SPEED, 0, 0, mPlaySpeed);
+                forward_speed_index = -1;
+                if(mPlayState == PLAYER_PAUSED)
+                    start();
             }
             else{
                 Log.d(TAG,"wrong state to fw");
             }
         }
+
     }
 
     private void setNormalSpeed() {
         if(mMediaPlayer != null) {
             mPlaySpeed = 1;
-            int[] newScale = {(int)(mPlaySpeed * 0x10000)};
-            mMediaPlayer.setPlaySpeed(newScale);
+            Log.d(TAG,"set speed to " + mPlaySpeed);
+            mMediaPlayer.setPlaybackParams(new PlaybackParams().setSpeed(mPlaySpeed));
+
             updateButtons(UPDATE_PLAYBACK_SPEED, 0, 0, mPlaySpeed);
             forward_speed_index = backward_speed_index = -1;
         }
@@ -1367,16 +1345,9 @@ public class VideoPlayer extends Activity implements HdmiApplication.Callback,
                  forward_speed_index = backward_speed_index = -1;
 
                 if(mPlayState == PLAYER_PLAYING){
-                    if(mPlaySpeed > 0 && mPlaySpeed < 2){
-                        if(mPlaySpeed != 1)
-                            setNormalSpeed();
-                        pause();
-                       // if pause firstly, setting to new speed from same kind of old speed will be delayed in omx player
-                    }
-                    else{
-                        pause();
+                    if(mPlaySpeed != 1)
                         setNormalSpeed();
-                    }
+                    pause();
                 }
                 else if(mPlayState == PLAYER_PAUSED){
                     mLastPlayState = -1;

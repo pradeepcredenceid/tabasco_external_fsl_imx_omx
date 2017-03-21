@@ -1666,7 +1666,7 @@ OMX_ERRORTYPE Parser::ProcessClkBuffer()
 
     if(pTimeBuffer->eUpdateType == OMX_TIME_UpdateScaleChanged)
     {
-        OMX_TIME_CONFIG_PLAYBACKTYPE *pPlayback = (OMX_TIME_CONFIG_PLAYBACKTYPE *)pTimeBuffer->nClientPrivate;
+        OMX_TIME_CONFIG_PLAYBACKTYPE *pPlayback = (OMX_TIME_CONFIG_PLAYBACKTYPE *)(unsigned long)pTimeBuffer->nClientPrivate;
         nClockScale = pTimeBuffer->xScale;
         playbackMode = pPlayback->ePlayMode;
     }

@@ -188,7 +188,7 @@ OMX_ERRORTYPE SurfaceSource::InitBuffers()
     if (!mIsPersistent) {
         proxy = new BufferQueue::ProxyConsumerListener(listener);
     } else {
-        proxy = new PersistentProxyListener(mConsumer, listener);
+        proxy = new PersisProxyListener(mConsumer, listener);
     }
     */
     proxy = new BufferQueue::ProxyConsumerListener(listener);
@@ -352,21 +352,18 @@ OMX_ERRORTYPE SurfaceSource::SendBufferToDevice()
 	return ret;
 }
 
-OMX_ERRORTYPE SurfaceSource::ReleaseBuffer(
-    int id,
-    uint64_t frameNum,
+OMX_ERRORTYPE SurfaceSource::ReleaseBuffer(int frame_id, uint64_t frame_num,
     const sp<GraphicBuffer> buffer)
 {
-    if (mIsPersistent) {
-        mConsumer->detachBuffer(id);
-
-        if (mConsumer->attachBuffer(&id, buffer) == OK) {
-            mConsumer->releaseBuffer(
-                    id, 0, EGL_NO_DISPLAY, EGL_NO_SYNC_KHR, Fence::NO_FENCE);
-        }
+    if(!mIsPersistent) {
+        mConsumer->releaseBuffer(frame_id, frame_num, EGL_NO_DISPLAY, 
+            EGL_NO_SYNC_KHR, Fence::NO_FENCE);
     } else {
-        mConsumer->releaseBuffer(
-                id, frameNum, EGL_NO_DISPLAY, EGL_NO_SYNC_KHR, Fence::NO_FENCE);
+        mConsumer->detachBuffer(frame_id);
+
+        if (OK == mConsumer->attachBuffer(&frame_id, buffer))
+            mConsumer->releaseBuffer(frame_id, 0, EGL_NO_DISPLAY, 
+                EGL_NO_SYNC_KHR, Fence::NO_FENCE);
     }
 
     return OMX_ErrorNone;
@@ -639,32 +636,33 @@ void SurfaceSource::GraphicBufferListener::onFrameAvailable(const BufferItem& it
     fsl_osal_mutex_unlock(mSurfaceSource->lock);
 
 }
-void SurfaceSource::GraphicBufferListener::onBuffersReleased(){
-    fsl_osal_mutex_lock(mSurfaceSource->lock);
-
-    uint64_t slotMask = 0;
-    if (mSurfaceSource->mConsumer->getReleasedBuffers(&slotMask) != NO_ERROR) {
-        LOG_WARNING("onBuffersReleased: unable to get released buffer set");
-        slotMask = 0xffffffffffffffffULL;
-    }
-
-    LOG_DEBUG("onBuffersReleased: slotMast: %x,%x" , int(slotMask>>32), int(slotMask & 0xFFFFFFFF));
-
-    for (int i = 0; i < BufferQueue::NUM_BUFFER_SLOTS; i++) {
-        if ((slotMask & 0x01) != 0) {
-            mSurfaceSource->mBufferSlot[i] = NULL;
-        }
-        slotMask >>= 1;
-    }
-
-    fsl_osal_mutex_unlock(mSurfaceSource->lock);
-}
 
 void SurfaceSource::GraphicBufferListener::onSidebandStreamChanged() {
     LOG_DEBUG("%s", __FUNCTION__);
 }
 
-SurfaceSource::PersistentProxyListener::PersistentProxyListener(
+void SurfaceSource::GraphicBufferListener::onBuffersReleased(){
+    fsl_osal_mutex_lock(mSurfaceSource->lock);
+
+    uint64_t mask = 0;
+    if (mSurfaceSource->mConsumer->getReleasedBuffers(&mask) != NO_ERROR) {
+        LOG_WARNING("on buffers released: can't get released buffer set");
+        mask = 0xffffffffffffffffULL;
+    }
+
+    LOG_DEBUG("on buffers released: mast: %x,%x" , int(mask>>32), int(mask & 0xFFFFFFFF));
+
+    for (int i = 0; i < BufferQueue::NUM_BUFFER_SLOTS; i++) {
+        if (0 != (mask & 0x01))
+            mSurfaceSource->mBufferSlot[i] = NULL;
+
+        mask >>= 1;
+    }
+
+    fsl_osal_mutex_unlock(mSurfaceSource->lock);
+}
+
+SurfaceSource::PersisProxyListener::PersisProxyListener(
         const wp<IGraphicBufferConsumer> &consumer,
         const wp<ConsumerListener>& consumerListener) :
     mConsumerListener(consumerListener),
@@ -673,17 +671,33 @@ SurfaceSource::PersistentProxyListener::PersistentProxyListener(
     LOG_DEBUG("%s %p", __FUNCTION__, this);
 }
 
-SurfaceSource::PersistentProxyListener::~PersistentProxyListener()
+SurfaceSource::PersisProxyListener::~PersisProxyListener()
 {
     LOG_DEBUG("%s", __FUNCTION__);
 }
 
-void SurfaceSource::PersistentProxyListener::onFrameAvailable(
-        const BufferItem& item) {
-    sp<ConsumerListener> listener(mConsumerListener.promote());
-    if (listener != NULL) {
+void SurfaceSource::PersisProxyListener::onBuffersReleased() {
+    sp<ConsumerListener> csmlistener(mConsumerListener.promote());
+    LOG_DEBUG("%s listener is %s", __FUNCTION__, csmlistener == NULL ? "NULL" : "not NULL");
+    if (csmlistener != NULL) {
+        csmlistener->onBuffersReleased();
+    }
+}
+
+void SurfaceSource::PersisProxyListener::onSidebandStreamChanged() {
+    sp<ConsumerListener> csmlistener(mConsumerListener.promote());
+    LOG_DEBUG("%s listener is %s", __FUNCTION__, csmlistener == NULL ? "NULL" : "not NULL");
+    if (csmlistener != NULL) {
+        csmlistener->onSidebandStreamChanged();
+    }
+}
+
+void SurfaceSource::PersisProxyListener::onFrameAvailable(
+        const BufferItem& itm) {
+    sp<ConsumerListener> csmlistener(mConsumerListener.promote());
+    if (csmlistener != NULL) {
         LOG_DEBUG("%s listener is !NULL", __FUNCTION__);
-        listener->onFrameAvailable(item);
+        csmlistener->onFrameAvailable(itm);
     } else {
         LOG_DEBUG("%s listener is NULL", __FUNCTION__);
 
@@ -694,52 +708,36 @@ void SurfaceSource::PersistentProxyListener::onFrameAvailable(
         BufferItem bi;
         status_t err = consumer->acquireBuffer(&bi, 0);
         if (err != OK) {
-            LOG_ERROR("PersistentProxyListener: acquireBuffer failed (%d)", err);
+            LOG_ERROR("PersisProxyListener acquireBuffer failed %d", err);
             return;
         }
 
         err = consumer->detachBuffer(bi.mBuf);
         if (err != OK) {
-            LOG_ERROR("PersistentProxyListener: detachBuffer failed (%d)", err);
+            LOG_ERROR("PersisProxyListener detachBuffer failed %d", err);
             return;
         }
 
         err = consumer->attachBuffer(&bi.mBuf, bi.mGraphicBuffer);
         if (err != OK) {
-            LOG_ERROR("PersistentProxyListener: attachBuffer failed (%d)", err);
+            LOG_ERROR("PersisProxyListener attachBuffer failed %d", err);
             return;
         }
 
         err = consumer->releaseBuffer(bi.mBuf, 0,
                 EGL_NO_DISPLAY, EGL_NO_SYNC_KHR, bi.mFence);
         if (err != OK) {
-            LOG_ERROR("PersistentProxyListener: releaseBuffer failed (%d)", err);
+            LOG_ERROR("PersisProxyListener releaseBuffer failed %d", err);
         }
     }
 }
 
-void SurfaceSource::PersistentProxyListener::onFrameReplaced(
-        const BufferItem& item) {
-    sp<ConsumerListener> listener(mConsumerListener.promote());
-    LOG_DEBUG("%s listener is %s", __FUNCTION__, listener == NULL ? "NULL" : "not NULL");
-    if (listener != NULL) {
-        listener->onFrameReplaced(item);
-    }
-}
-
-void SurfaceSource::PersistentProxyListener::onBuffersReleased() {
-    sp<ConsumerListener> listener(mConsumerListener.promote());
-    LOG_DEBUG("%s listener is %s", __FUNCTION__, listener == NULL ? "NULL" : "not NULL");
-    if (listener != NULL) {
-        listener->onBuffersReleased();
-    }
-}
-
-void SurfaceSource::PersistentProxyListener::onSidebandStreamChanged() {
-    sp<ConsumerListener> listener(mConsumerListener.promote());
-    LOG_DEBUG("%s listener is %s", __FUNCTION__, listener == NULL ? "NULL" : "not NULL");
-    if (listener != NULL) {
-        listener->onSidebandStreamChanged();
+void SurfaceSource::PersisProxyListener::onFrameReplaced(
+        const BufferItem& itm) {
+    sp<ConsumerListener> csmlistener(mConsumerListener.promote());
+    LOG_DEBUG("%s listener is %s", __FUNCTION__, csmlistener == NULL ? "NULL" : "not NULL");
+    if (csmlistener != NULL) {
+        csmlistener->onFrameReplaced(itm);
     }
 }
 

@@ -167,12 +167,14 @@ static OMX_ERRORTYPE GMGetBuffer(
             break;
         case GM_PHYSIC:
 #ifdef ANDROID_BUILD
+#if (ANDROID_VERSION <= ICS)
             PMEMADDR sMemAddr;
             sMemAddr = GetPMBuffer(player->PmContext, pInfo->nSize, pInfo->nNum);
             if(sMemAddr.pVirtualAddr == NULL)
                 return OMX_ErrorInsufficientResources;
             AddHwBuffer(sMemAddr.pPhysicAddr, sMemAddr.pVirtualAddr);
             *pBuffer = sMemAddr.pVirtualAddr;
+#endif
 #endif
             break;
         default:
@@ -196,8 +198,10 @@ static OMX_ERRORTYPE GMFreeBuffer(
             break;
         case GM_PHYSIC:
 #ifdef ANDROID_BUILD
+#if (ANDROID_VERSION <= ICS)
             RemoveHwBuffer(pBuffer);
             FreePMBuffer(player->PmContext, pBuffer);
+#endif
 #endif
             break;
         default:
@@ -642,49 +646,44 @@ OMX_ERRORTYPE GMRecorder::setParamMaxFileDurationUs(OMX_TICKS timeUs)
 	return ret;
 }
 
-OMX_ERRORTYPE GMRecorder::setParamMaxFileSizeBytes(OMX_S64 bytes)
+OMX_ERRORTYPE GMRecorder::setParamMaxFileSizeBytes(OMX_S64 size)
 {
 	OMX_ERRORTYPE ret = OMX_ErrorNone;
 
-	LOG_DEBUG("setParamMaxFileSizeBytes: %lld bytes", bytes);
-	if (bytes <= 0) {
-		LOG_WARNING("Max file size is not positive: %lld bytes. "
-				"Disabling file size limit.", bytes);
-		bytes = 0; // Disable the file size limit for zero or negative values.
+	LOG_DEBUG("MaxFileSizeBytes: %lld bytes", size);
+	if (size <= 0) {
+		LOG_WARNING("Disable file size limit.", size);
+		gm_bytes = 0;
 		return ret;
-	} else if (bytes <= 1024) {  // XXX: 1 kB
-        LOG_ERROR("Max file size is too small: %lld bytes", bytes);
+	}
+
+    if (size <= 1024) {
+        LOG_ERROR("MaxFileSize too small: %lld", size);
 		bError = OMX_TRUE;
 		return OMX_ErrorBadParameter;
     }
 
-	gm_bytes = bytes;
+	gm_bytes = size;
 
 	return ret;
 }
 
-OMX_ERRORTYPE GMRecorder::setParamInterleaveDuration(OMX_S32 durationUs)
+OMX_ERRORTYPE GMRecorder::setParamInterleaveDuration(OMX_S32 durUs)
 {
-	OMX_ERRORTYPE ret = OMX_ErrorNone;
-
-    LOG_DEBUG("setParamInterleaveDuration: %d", durationUs);
-    if (durationUs <= 500000) {           //  500 ms
-        // If interleave duration is too small, it is very inefficient to do
-        // interleaving since the metadata overhead will count for a significant
-        // portion of the saved contents
-        LOG_ERROR("Audio/video interleave duration is too small: %d us", durationUs);
-        return OMX_ErrorBadParameter;
-    } else if (durationUs >= 10000000) {  // 10 seconds
-        // If interleaving duration is too large, it can cause the recording
-        // session to use too much memory since we have to save the output
-        // data before we write them out
-        LOG_ERROR("Audio/video interleave duration is too large: %d us", durationUs);
+    LOG_DEBUG("setParamInterleaveDuration: %d", durUs);
+    if (durUs <= 500000) {
+        LOG_ERROR("Interleave duration too small: %d us", durUs);
         return OMX_ErrorBadParameter;
     }
 
-	gm_durationUs = durationUs;
+    if (durUs >= 10000000) {
+        LOG_ERROR("Interleave duration too large: %d us", durUs);
+        return OMX_ErrorBadParameter;
+    }
 
-	return ret;
+	gm_durationUs = durUs;
+
+	return OMX_ErrorNone;
 }
 
 OMX_ERRORTYPE GMRecorder::setParamMovieTimeScale(OMX_S32 timeScale)

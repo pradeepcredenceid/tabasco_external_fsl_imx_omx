@@ -36,8 +36,8 @@ SurfaceRender::SurfaceRender()
     role_cnt = 1;
     role[0] = (OMX_STRING)"video_render.surface";
 
-    nFrameBufferMin = 1;
-    nFrameBufferActual = 1;
+    nFrameBufferMin = 3;
+    nFrameBufferActual = 3;
     nFrameBuffer = nFrameBufferActual;
     TunneledSupplierType = OMX_BufferSupplyInput;
     fsl_osal_memset(&sVideoFmt, 0, sizeof(OMX_VIDEO_PORTDEFINITIONTYPE));
@@ -812,7 +812,7 @@ OMX_ERRORTYPE SurfaceRender::BufferInit()
         LOG_DEBUG("prvHandle %p, phys %x, nLength %d\n", prvHandle, prvHandle->phys, prvHandle->size);
 
         fb_data[i].nLength = prvHandle->size;
-        fb_data[i].pPhyiscAddr = (OMX_PTR)prvHandle->phys;
+        fb_data[i].pPhyiscAddr = (OMX_PTR)(unsigned long)prvHandle->phys;
         fb_data[i].pNativeBufferT = buf;
         fb_data[i].owner = OWNER_VPU;
 
@@ -1079,8 +1079,10 @@ OMX_U32 SurfaceRender::GetDeviceDropFames()
         return 0;
 
     int nDropedFrames = 0;
+    #if (ANDROID_VERSION < MARSH_MALLOW_600)
     if(0 != nativeWindow->query(nativeWindow.get(), NATIVE_WINDOW_GET_FRAME_LOST, &nDropedFrames))
         return 0;
+    #endif
 
     LOG_DEBUG("nDeviceDropCnt: %d\n", nDropedFrames);
 

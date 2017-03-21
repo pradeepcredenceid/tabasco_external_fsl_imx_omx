@@ -2639,7 +2639,7 @@ int VpuSeqInit(DecHandle InVpuHandle, VpuDecObj* pObj ,VpuBufferNode* pInData,in
 			else if(pObj->nPrivateSeqHeaderInserted==0)
 			{
 				//insert private data
-				if((pObj->CodecFormat==VPU_V_VC1_AP))
+				if(pObj->CodecFormat==VPU_V_VC1_AP)
 				{
 					if((pInData->pVirAddr==NULL) ||(pInData->nSize<4))
 					{
@@ -2668,14 +2668,14 @@ int VpuSeqInit(DecHandle InVpuHandle, VpuDecObj* pObj ,VpuBufferNode* pInData,in
 				//private data have already been inserted before
 				//so we need to insert frame header !!! when we enable macro VPU_DEC_CHECK_INIT_LENGTH
 
-				if((pInData->pVirAddr==NULL)/* ||(pInData->nSize<4)*/)
+				if(pInData->pVirAddr==NULL/* ||(pInData->nSize<4)*/)
 				{
 					VPU_LOG("%s: no input buffer, return and do nothing \r\n",__FUNCTION__);	
 					*pOutRetCode=VPU_DEC_INPUT_NOT_USED;
 					return 0;
 				}
 
-				if((pObj->CodecFormat==VPU_V_VC1_AP))
+				if(pObj->CodecFormat==VPU_V_VC1_AP)
 				{
 					ASSERT(pInData->nSize>=4);
 					VC1CreateNalFrameHeader(pHeader,(int*)(&headerLen),(unsigned int*)(pInData->pVirAddr));
@@ -2720,7 +2720,7 @@ int VpuSeqInit(DecHandle InVpuHandle, VpuDecObj* pObj ,VpuBufferNode* pInData,in
 				{
 					//seq header have already been inserted before
 					//so we need to insert frame header !!! when we enable macro VPU_DEC_CHECK_INIT_LENGTH
-					if((pInData->pVirAddr==NULL)/* ||(pInData->nSize<4)*/)
+					if(pInData->pVirAddr==NULL/* ||(pInData->nSize<4)*/)
 					{
 						VPU_LOG("%s: no input buffer, return and do nothing \r\n",__FUNCTION__);	
 						*pOutRetCode=VPU_DEC_INPUT_NOT_USED;
@@ -2767,7 +2767,7 @@ int VpuSeqInit(DecHandle InVpuHandle, VpuDecObj* pObj ,VpuBufferNode* pInData,in
 					{
 						//seq header have already been inserted before
 						//so we need to insert frame header !!! when we enable macro VPU_DEC_CHECK_INIT_LENGTH
-						if((pInData->pVirAddr==NULL)/* ||(pInData->nSize<4)*/)
+						if(pInData->pVirAddr==NULL/* ||(pInData->nSize<4)*/)
 						{
 							VPU_LOG("%s: no input buffer, return and do nothing \r\n",__FUNCTION__);	
 							*pOutRetCode=VPU_DEC_INPUT_NOT_USED;
@@ -4334,7 +4334,7 @@ int VpuDecBuf(DecHandle* pVpuHandle, VpuDecObj* pObj ,VpuBufferNode* pInData,int
 			else
 			{
 				//insert frame header
-				if((pObj->CodecFormat==VPU_V_VC1_AP))
+				if(pObj->CodecFormat==VPU_V_VC1_AP)
 				{
 					VC1CreateNalFrameHeader(pHeader,(int*)(&headerLen),(unsigned int*)(pInData->pVirAddr));
 				}
@@ -8387,7 +8387,7 @@ printf("user specify version \r\n");
 #else
 	pOutVerInfo->pBinary=(char*)VPUWRAPPER_BINARY_VERSION_STR;
 #endif	
-	return VPU_DEC_RET_SUCCESS;	
+	return VPU_ENC_RET_SUCCESS;
 }
 
 VpuEncRetCode VPU_EncRegisterFrameBuffer(VpuEncHandle InHandle,VpuFrameBuffer *pInFrameBufArray, int nNum,int nSrcStride)

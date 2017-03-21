@@ -10,6 +10,7 @@
 #include "FlacDec.h"
 
 #define FLACFRAMEHEADERLEN 2
+#define FLAC_MAX_ERROR_COUNT (500)
 
 FlacDec::FlacDec()
 {
@@ -24,6 +25,7 @@ FlacDec::FlacDec()
     nPorts = AUDIO_FILTER_PORT_NUMBER;
 	nPushModeInputLen = FLAC_INPUT_BUF_PUSH_SIZE + 1;
 	nRingBufferScale = RING_BUFFER_SCALE;
+    errorCount = 0;
 }
 
 OMX_ERRORTYPE FlacDec::InitComponent()
@@ -40,7 +42,7 @@ OMX_ERRORTYPE FlacDec::InitComponent()
     sPortDef.bEnabled = OMX_TRUE;
     sPortDef.nBufferCountMin = 1;
     sPortDef.nBufferCountActual = 3;
-    sPortDef.nBufferSize = 1024;
+    sPortDef.nBufferSize = 32*1024;
     ret = ports[AUDIO_FILTER_INPUT_PORT]->SetPortDefinition(&sPortDef);
     if(ret != OMX_ErrorNone) {
         LOG_ERROR("Set port definition for port[%d] failed.\n", AUDIO_FILTER_INPUT_PORT);
@@ -64,12 +66,13 @@ OMX_ERRORTYPE FlacDec::InitComponent()
 
 	OMX_INIT_STRUCT(&FlacType, OMX_AUDIO_PARAM_FLACTYPE);
 	OMX_INIT_STRUCT(&PcmMode, OMX_AUDIO_PARAM_PCMMODETYPE);
+    OMX_INIT_STRUCT(&LastOutputType, OMX_AUDIO_PARAM_PCMMODETYPE);
 
 	FlacType.nPortIndex = AUDIO_FILTER_INPUT_PORT;
 	FlacType.nChannels = 2;
 	FlacType.nSampleRate = 44100;
 
-	PcmMode.nPortIndex = AUDIO_FILTER_OUTPUT_PORT;
+    PcmMode.nPortIndex = AUDIO_FILTER_OUTPUT_PORT;
 	PcmMode.nChannels = 2;
 	PcmMode.nSamplingRate = 44100;
 	PcmMode.nBitPerSample = 16;
@@ -129,6 +132,13 @@ OMX_ERRORTYPE FlacDec::AudioFilterInstanceInit()
     return ret;
 }
 
+
+/*
+ *  [out]
+ *  0: FLAC__STREAM_DECODER_READ_STATUS_CONTINUE
+ *  1: FLAC__STREAM_DECODER_READ_STATUS_END_OF_STREAM
+ *  2: FLAC__STREAM_DECODER_READ_STATUS_ABORT
+ */
 OMX_S32 FlacDec_SwapBuffers(OMX_S8 **new_buf_ptr, OMX_U32 *new_buf_len, void *context)
 {
 	FlacDec *pFlacDec = (FlacDec *)context;
@@ -149,7 +159,7 @@ OMX_S32 FlacDec_SwapBuffers(OMX_S8 **new_buf_ptr, OMX_U32 *new_buf_len, void *co
 	{
 		*new_buf_ptr = NULL;
 		*new_buf_len=0;
-		return 0;
+		return 2;
 	}
 
 	pAudioRingBuffer->BufferConsumered(pAudioRingBuffer->nPrevOffset);
@@ -178,6 +188,7 @@ OMX_ERRORTYPE FlacDec::AudioFilterCodecInit()
 	OMX_U8 *pBuffer;
 	OMX_U32 nActuralLen;
 
+    errorCount = 0;
 	AudioRingBuffer.BufferGet(&pBuffer, nPushModeInputLen, &nActuralLen);
 	LOG_DEBUG("Get buffer for flac init:%d\n", nActuralLen);
 
@@ -217,6 +228,8 @@ OMX_ERRORTYPE FlacDec::AudioFilterCodecInit()
 		return OMX_ErrorInsufficientResources;
 	}
 	fsl_osal_memset(pOutBuffer, 0, FLAC_INPUT_BUF_PUSH_SIZE);
+
+    fsl_osal_memcpy(&LastOutputType, &PcmMode, sizeof(OMX_AUDIO_PARAM_PCMMODETYPE));
 
     return ret;
 }
@@ -355,12 +368,13 @@ AUDIO_FILTERRETURNTYPE FlacDec::AudioFilterFrame()
 
 	if (FlacRet == FLACD_OK || FlacRet == FLACD_CONTINUE_DECODING)
 	{
+	    errorCount = 0;
         if(0 == OutputLenPerChannel){
             return AUDIO_FILTER_FAILURE;
         }
-		if (PcmMode.nChannels != (OMX_U16)pFlacDecConfig->channel_no
-				|| PcmMode.nSamplingRate != (OMX_U32)pFlacDecConfig->sampling_rate
-				|| PcmMode.nBitPerSample != pFlacDecConfig->bit_per_sample)
+		if (LastOutputType.nChannels != (OMX_U16)pFlacDecConfig->channel_no
+				|| LastOutputType.nSamplingRate != (OMX_U32)pFlacDecConfig->sampling_rate
+				|| LastOutputType.nBitPerSample != pFlacDecConfig->bit_per_sample)
 		{
 			LOG_DEBUG("FLAC decoder channel: %d sample rate: %d\n", \
 					pFlacDecConfig->channel_no, pFlacDecConfig->sampling_rate);
@@ -374,8 +388,10 @@ AUDIO_FILTERRETURNTYPE FlacDec::AudioFilterFrame()
 			PcmMode.nChannels = pFlacDecConfig->channel_no;
 			PcmMode.nSamplingRate = pFlacDecConfig->sampling_rate;
 			PcmMode.nBitPerSample = pFlacDecConfig->bit_per_sample;
+            fsl_osal_memcpy(&LastOutputType, &PcmMode, sizeof(OMX_AUDIO_PARAM_PCMMODETYPE));
 			LOG_DEBUG("Flac nBitPerSample: %d nChannels: %d nSampleRate:%d\n", PcmMode.nBitPerSample, PcmMode.nChannels, PcmMode.nSamplingRate);
-			SendEvent(OMX_EventPortSettingsChanged, AUDIO_FILTER_OUTPUT_PORT, 0, NULL);
+            if(!bConvertEnable)
+                SendEvent(OMX_EventPortSettingsChanged, AUDIO_FILTER_OUTPUT_PORT, 0, NULL);
 		}
 
 		OMX_U32 i, j, OutputChannel = pFlacDecConfig->channel_no;
@@ -430,7 +446,7 @@ AUDIO_FILTERRETURNTYPE FlacDec::AudioFilterFrame()
 
 		pOutBufferHdr->nOffset = 0;
 
-		TS_PerFrame = (OMX_U64)OutputLenPerChannel*OMX_TICKS_PER_SECOND/FlacType.nSampleRate;
+		TS_PerFrame = (OMX_U64)OutputLenPerChannel*OMX_TICKS_PER_SECOND/PcmMode.nSamplingRate;
 
 		LOG_LOG("TS per Frame = %lld\n", TS_PerFrame);
 
@@ -441,7 +457,10 @@ AUDIO_FILTERRETURNTYPE FlacDec::AudioFilterFrame()
 		pOutBufferHdr->nOffset = 0;
 		pOutBufferHdr->nFilledLen = 0;
 
-		ret = AUDIO_FILTER_EOS;
+        if (FlacRet == FLACD_COMPLETE_DECODING && errorCount++ > FLAC_MAX_ERROR_COUNT)
+            ret = AUDIO_FILTER_FATAL_ERROR; // continuous error count reach to max value.
+        else
+		    ret = AUDIO_FILTER_EOS;
 	}
 	else
 	{

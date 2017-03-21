@@ -11,7 +11,7 @@
 #include <stdint.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
-#include <linux/videodev.h>
+#include <linux/videodev2.h>
 
 #include "OMX_Core.h"
 #include "OMX_Component.h"

@@ -38,7 +38,7 @@ OMX_ERRORTYPE PcmDec::InitComponent()
     sPortDef.bEnabled = OMX_TRUE;
     sPortDef.nBufferCountMin = 1;
     sPortDef.nBufferCountActual = 3;
-    sPortDef.nBufferSize = 1024;
+    sPortDef.nBufferSize = 16384;
     ret = ports[AUDIO_FILTER_INPUT_PORT]->SetPortDefinition(&sPortDef);
     if(ret != OMX_ErrorNone) {
         LOG_ERROR("Set port definition for port[%d] failed.\n", AUDIO_FILTER_INPUT_PORT);

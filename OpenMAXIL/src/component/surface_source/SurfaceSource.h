@@ -46,10 +46,8 @@ class SurfaceSource : public VideoSource {
 	private:
 
         struct EncodingBuffer {
-            // buffer producer's frame-number for buffer
             uint64_t nFrameNumber;
 
-            // buffer producer's buffer slot for buffer
             int mBuf;
 
             sp<GraphicBuffer> spGraphicBuffer;
@@ -94,7 +92,6 @@ class SurfaceSource : public VideoSource {
 
         Vector<EncodingBuffer> mEncodingBuffers;
         sp<GraphicBuffer> mBufferSlot[BufferQueue::NUM_BUFFER_SLOTS];
-        //sp<IGraphicBufferConsumer> mBufferConsumer;
 
         sp<IGraphicBufferProducer> mProducer;
         sp<IGraphicBufferConsumer> mConsumer;
@@ -105,11 +102,6 @@ class SurfaceSource : public VideoSource {
             public:
               GraphicBufferListener(SurfaceSource *ssource);
               virtual ~GraphicBufferListener();
-              //sp<IGraphicBufferProducer> mProducer;
-              //sp<IGraphicBufferConsumer> mConsumer;
-              //OMX_BOOL mIsPersistent;
-
-              //sp<IConsumerListener> proxy;
 
             private:
                 SurfaceSource * mSurfaceSource;
@@ -121,22 +113,20 @@ class SurfaceSource : public VideoSource {
 
         sp <GraphicBufferListener> mListener;
 
-        // from GraphicBufferSource.h
-        class PersistentProxyListener : public BnConsumerListener {
+        class PersisProxyListener : public BnConsumerListener {
              public:
-                 PersistentProxyListener(
+                 PersisProxyListener(
                          const wp<IGraphicBufferConsumer> &consumer,
                          const wp<ConsumerListener>& consumerListener);
-                 virtual ~PersistentProxyListener();
+                 virtual ~PersisProxyListener();
                  virtual void onFrameAvailable(const BufferItem& item) override;
                  virtual void onFrameReplaced(const BufferItem& item) override;
                  virtual void onBuffersReleased() override;
                  virtual void onSidebandStreamChanged() override;
               private:
-                 // mConsumerListener is a weak reference to the IConsumerListener.
+
                  wp<ConsumerListener> mConsumerListener;
-                 // mConsumer is a weak reference to the IGraphicBufferConsumer, use
-                 // a weak ref to avoid circular ref between mConsumer and this class
+
                  wp<IGraphicBufferConsumer> mConsumer;
          };
 

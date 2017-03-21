@@ -129,7 +129,7 @@ OMX_ERRORTYPE AudioParserBase::AudioParserInstanceInit()
 		LOG_ERROR("Audio duration is 0.\n");
 		return OMX_ErrorFormatNotDetected;
 	}
-	sprintf(tmp, "%ld", nAvrageBitRate);
+	sprintf(tmp, "%d", nAvrageBitRate);
 	SetMetadata((OMX_STRING)"bitrate", tmp, 32);
 	nAudioDuration = (OMX_U64)((nEndPoint - nBeginPoint) << 3) * OMX_TICKS_PER_SECOND / nAvrageBitRate;
 	usDuration = nAudioDuration;
@@ -616,11 +616,12 @@ OMX_ERRORTYPE AudioParserBase::ParserOneSegmentAudio()
 
 		if (nReadPointTmp2 >= AUDIO_PARSER_SEGMENT_SIZE)
 		{
-			break;
 			nReadPointTmp2 = 0;
 			nSegmentCnt ++;
 			nReadPointTmp += nSkip;
-		}
+            break;
+        }
+
 	}
 
 	if (FrameInfo.bIsCBR == E_FSL_OSAL_FALSE)
@@ -794,6 +795,7 @@ OMX_ERRORTYPE AudioParserBase::ParserCalculateVBRDuration()
 	if(SeekTable[0] == NULL)
 	{
 		LOG_ERROR("Failed in allocate memory for seek_index\n");
+        fileOps2.Close(sourceFileHandle2, this);
 		return OMX_ErrorInsufficientResources;
 	}
 	fsl_osal_memset(SeekTable[0], 0, 60 * sizeof(OMX_U64 *));
@@ -802,6 +804,7 @@ OMX_ERRORTYPE AudioParserBase::ParserCalculateVBRDuration()
 	if(SeekTable[0][0] == NULL)
 	{
 		LOG_ERROR("Failed in allocate memory for seek_index\n");
+        fileOps2.Close(sourceFileHandle2, this);
 		return OMX_ErrorInsufficientResources;
 	}
 	fsl_osal_memset(SeekTable[0][0], 0, 60 * sizeof(OMX_U64));

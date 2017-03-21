@@ -282,7 +282,7 @@ OMX_ERRORTYPE Clock::SetTimeScale(
     OMX_INIT_STRUCT(&UpdateType, OMX_TIME_MEDIATIMETYPE);
     UpdateType.eUpdateType = OMX_TIME_UpdateScaleChanged;
     UpdateType.xScale = Scale;
-    UpdateType.nClientPrivate = (OMX_U32)&sPlaybackType;
+    UpdateType.nClientPrivate = (unsigned long)&sPlaybackType;
 
     fsl_osal_mutex_unlock(lock);
 
@@ -431,7 +431,7 @@ OMX_ERRORTYPE Clock::MediaTimeRequest(
 
     OMX_INIT_STRUCT(&UpdateType, OMX_TIME_MEDIATIMETYPE);
     UpdateType.eUpdateType = OMX_TIME_UpdateRequestFulfillment;
-    UpdateType.nClientPrivate = (OMX_U32) pRequst->pClientPrivate;
+    UpdateType.nClientPrivate = (unsigned long) pRequst->pClientPrivate;
 
     if(sPlaybackType.ePlayMode != NORMAL_MODE) {
 

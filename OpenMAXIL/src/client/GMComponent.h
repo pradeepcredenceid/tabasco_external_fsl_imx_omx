@@ -50,6 +50,11 @@ typedef enum {
     GM_EGLIMAGE
 }GMBUFFERTYPE;
 
+typedef enum {
+    GM_MAXIMUM,
+    GM_CUMULATE
+}GM_BUFFERNUMBERTYPE;
+
 typedef struct {
     GMBUFFERTYPE type;
     OMX_U32 nSize;
@@ -90,6 +95,7 @@ typedef struct {
     fsl_osal_mutex HoldBufferListLock;
     List<OMX_BUFFERHEADERTYPE> HoldBufferList;
     OMX_BOOL bFisrtPortSettingChanged;
+    GM_BUFFERNUMBERTYPE bufferNumberType;
 }GM_PORTINFO;
 
 typedef struct {
@@ -136,6 +142,7 @@ class GMComponent {
         OMX_ERRORTYPE CbEmptyBufferDone(OMX_BUFFERHEADERTYPE* pBuffer);
         OMX_ERRORTYPE CbFillBufferDone(OMX_BUFFERHEADERTYPE* pBuffer);
         OMX_ERRORTYPE DynamicPortSettingChange(OMX_U32 nPortIndex);
+        OMX_ERRORTYPE SetPortBufferNumberType(OMX_U32 nPortIndex,GM_BUFFERNUMBERTYPE eType);
     private:
         GM_PORTINFO PortsInfo[MAX_PORT_NUM];
         OMX_BOOL bError;

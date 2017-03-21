@@ -59,10 +59,14 @@ class SoftHevcDec : public VideoFilter {
         // The input stream has changed to a different resolution, which is still supported by the
         // codec. So the codec is switching to decode the new resolution.
         OMX_BOOL bChangingResolution;
+        OMX_BOOL bDropPB;
+        OMX_S32 nFrameWidthStride;//user may register frames with specified width stride
+        OMX_S32 nFrameHeightStride;//user may register frames with specified height stride
+        OMX_S32 nFrameMaxCnt;//user may register frames with specified count
 
         OMX_ERRORTYPE GetConfig(OMX_INDEXTYPE nParamIndex, OMX_PTR pComponentParameterStructure);
         OMX_ERRORTYPE SetConfig(OMX_INDEXTYPE nParamIndex, OMX_PTR pComponentParameterStructure);
-
+        OMX_ERRORTYPE SetParameter(OMX_INDEXTYPE nParamIndex,OMX_PTR pComponentParameterStructure);
         OMX_ERRORTYPE SetInputBuffer(OMX_PTR pBuffer, OMX_S32 nSize, OMX_BOOL bLast);
         OMX_ERRORTYPE SetOutputBuffer(OMX_PTR pBuffer);
 
@@ -82,7 +86,9 @@ class SoftHevcDec : public VideoFilter {
         FilterBufRetCode DecodeOneFrame();
 
         OMX_ERRORTYPE DetectOutputFmt(OMX_U32 width, OMX_U32 height);
-
+        OMX_ERRORTYPE SetCropInfo(OMX_CONFIG_RECTTYPE *sCrop);
+        OMX_ERRORTYPE GetCropInfo(OMX_CONFIG_RECTTYPE *sCrop);
+        OMX_ERRORTYPE SetDefaultSetting();
         OMX_U8 cRole[OMX_MAX_STRINGNAME_SIZE];
         OMX_PTR pClock;
         OMX_VIDEO_CODINGTYPE CodingType;

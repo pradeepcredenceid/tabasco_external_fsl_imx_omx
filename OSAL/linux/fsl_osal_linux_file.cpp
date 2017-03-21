@@ -59,7 +59,7 @@ efsl_osal_return_type_t fsl_osal_fopen(const fsl_osal_char *path,
  	}
  	*file_handle = (void *)fp;
 #else
-        int fd;
+        long fd;
         fd = open(path, O_LARGEFILE | O_RDONLY);
         if(fd < 0)
  	{
@@ -96,7 +96,7 @@ efsl_osal_return_type_t fsl_osal_fclose(fsl_osal_file file_handle)
 		return E_FSL_OSAL_UNKNOWN;
 	}
 #else
-        int mFd = (int)file_handle;
+        long mFd = (long)file_handle;
         if (mFd >= 0) {
             close(mFd);
         }
@@ -151,7 +151,7 @@ efsl_osal_return_type_t fsl_osal_fread(fsl_osal_ptr buffer,
 	}
 #else
         int ret;
-        int mFd = (int)file_handle;
+        long mFd = (long)file_handle;
 
  	if(mFd < 0 )
  	{
@@ -210,7 +210,7 @@ efsl_osal_return_type_t fsl_osal_fwrite(const fsl_osal_ptr buffer,
 	fflush(fp);
 #else
         int ret;
-        int mFd = (int)file_handle;
+        long mFd = (long)file_handle;
  	if(mFd < 0 )
  	{
  		LOG_ERROR("\n Invalid fd.");
@@ -285,7 +285,7 @@ efsl_osal_return_type_t fsl_osal_fseek(fsl_osal_file file_handle,
 		return E_FSL_OSAL_INVALIDPARAM;
 	}
 #else
-        int mFd = (int)file_handle;
+        long mFd = (long)file_handle;
         if(mFd < 0)
 	{
  		LOG_ERROR("\n Invalid fd.");
@@ -346,7 +346,7 @@ efsl_osal_return_type_t fsl_osal_ftell(fsl_osal_file file_handle,
 		return E_FSL_OSAL_FAILURE;
 	*offset = current_offset;
 #else
-        int mFd = (int)file_handle;
+        long mFd = (long)file_handle;
         if(mFd < 0)
 	{
             LOG_ERROR("\n Invalid fd.");
@@ -388,7 +388,7 @@ efsl_osal_return_type_t fsl_osal_fflush(fsl_osal_file file_handle)
 	}
 #else
 
-        int mFd = (int)file_handle;
+        long mFd = (long)file_handle;
         if (mFd < 0) {
             LOG_ERROR("\n Invalid fd.");
             return E_FSL_OSAL_INVALIDPARAM;
@@ -418,7 +418,7 @@ OMX_OSAL_API efsl_osal_return_type_t fsl_osal_fsize(fsl_osal_file file_handle, f
 		return E_FSL_OSAL_FAILURE;
 
 #else
-        int mFd = (int)file_handle;
+        long mFd = (long)file_handle;
         if (mFd < 0) {
             LOG_ERROR("\n Invalid fd.");
             return E_FSL_OSAL_INVALIDPARAM;
@@ -501,7 +501,7 @@ efsl_osal_return_type_t fsl_osal_feof(fsl_osal_file file_handle, fsl_osal_s32 *r
 #else
         int ret;
         fsl_osal_s64 pos, size;
-        int mFd = (int)file_handle;
+        long mFd = (long)file_handle;
 
         if (mFd < 0) {
             LOG_ERROR("\n Invalid fd.");

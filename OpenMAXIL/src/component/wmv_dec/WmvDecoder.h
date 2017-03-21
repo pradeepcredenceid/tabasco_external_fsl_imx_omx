@@ -45,7 +45,9 @@ class WmvDecoder : public VideoFilter {
         OMX_PTR pFrameBuffer;
         OMX_CONFIG_RECTTYPE sOutCrop;
         WMVDECSTATE eWmvDecState;
-
+        OMX_U32 nChromaAddrAlign;
+        OMX_S32 nTop;
+        OMX_S32 nLeft;
         OMX_ERRORTYPE GetParameter(OMX_INDEXTYPE nParamIndex, OMX_PTR pComponentParameterStructure);
         OMX_ERRORTYPE SetParameter(OMX_INDEXTYPE nParamIndex, OMX_PTR pComponentParameterStructure);
         OMX_ERRORTYPE GetConfig(OMX_INDEXTYPE nParamIndex, OMX_PTR pComponentParameterStructure);
@@ -67,6 +69,8 @@ class WmvDecoder : public VideoFilter {
         OMX_ERRORTYPE FreeDecoderMemory();
         OMX_ERRORTYPE AllocateFrameBuffer();
         OMX_ERRORTYPE FreeFrameBuffer();
+        OMX_ERRORTYPE SetCropInfo(OMX_CONFIG_RECTTYPE *sCrop);
+        OMX_ERRORTYPE GetCropInfo(OMX_CONFIG_RECTTYPE *sCrop);
 
         ShareLibarayMgr *libMgr;
         OMX_PTR hLib;

@@ -8,14 +8,19 @@ LOCAL_SRC_FILES := \
         GMPlayerWrapper.cpp \
 	GMPlayer.cpp \
 	OMX_MetadataExtractor.cpp \
-	OMX_Recorder.cpp \
-	GMRecorder.cpp \
 	GMComponent.cpp \
 	MediaInspector.cpp \
-	PMemory.cpp \
 	GMSubtitleSource.cpp \
-	GMSubtitlePlayer.cpp
-		
+	GMSubtitlePlayer.cpp \
+	GMRecorder.cpp \
+	OMX_Recorder.cpp
+	
+use_pmemory := $(shell if [ $(ANDROID_VERSION_MACRO) -le 400 ];then echo "true";fi)
+ifeq ($(use_pmemory), true)
+LOCAL_SRC_FILES += \
+	PMemory.cpp
+endif
+
 LOCAL_CFLAGS += $(FSL_OMX_CFLAGS) 
 
 LOCAL_LDFLAGS += $(FSL_OMX_LDFLAGS)

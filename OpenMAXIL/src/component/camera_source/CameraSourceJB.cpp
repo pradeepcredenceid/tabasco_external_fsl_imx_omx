@@ -28,48 +28,48 @@ using android::IPCThreadState;
 
 #define NO_ERROR 0
 
-struct CameraSourceListener : public CameraListener {
-    CameraSourceListener(CameraSource *source);
+struct CamSrcListener : public CameraListener {
+    CamSrcListener(CameraSource *source);
 
-    virtual void notify(int msgType, int ext1, int ext2);
-    virtual void postData(int msgType, const sp<IMemory> &dataPtr, camera_frame_metadata_t *metadata);
+    virtual void notify(int msg, int e1, int e2);
+    virtual void postData(int msg, const sp<IMemory> &data, camera_frame_metadata_t *metadata);
 
     virtual void postDataTimestamp(
-            nsecs_t timestamp, int msgType, const sp<IMemory>& dataPtr);
+            nsecs_t ts, int msg, const sp<IMemory>& data);
 
-    virtual ~CameraSourceListener();
+    virtual ~CamSrcListener();
 protected:
 
 private:
     CameraSource *mSource;
 
-    CameraSourceListener(const CameraSourceListener &);
-    CameraSourceListener &operator=(const CameraSourceListener &);
+    CamSrcListener(const CamSrcListener &);
+
+    CamSrcListener &operator=(const CamSrcListener &);
 };
 
-CameraSourceListener::CameraSourceListener(CameraSource *source) {
+CamSrcListener::CamSrcListener(CameraSource *source) {
 		mSource = source;
 }
 
-CameraSourceListener::~CameraSourceListener() {
+CamSrcListener::~CamSrcListener() {
 }
 
-void CameraSourceListener::notify(int msgType, int ext1, int ext2) {
-    LOG_LOG("notify(%d, %d, %d)", msgType, ext1, ext2);
+void CamSrcListener::notify(int msg, int e1, int e2) {
+    LOG_LOG("listener notify %d, %d, %d", msg, e1, e2);
 }
 
-void CameraSourceListener::postData(int msgType, const sp<IMemory> &dataPtr, camera_frame_metadata_t *metadata) {
-	LOG_LOG("postData(%d, ptr:%p, size:%d)",
-			msgType, dataPtr->pointer(), dataPtr->size());
+void CamSrcListener::postData(int msg, const sp<IMemory> &data, camera_frame_metadata_t *metadata) {
+	LOG_LOG("listener postData %d, ptr:%p, size:%d", msg, data->pointer(), data->size());
 }
 
-void CameraSourceListener::postDataTimestamp(
-        nsecs_t timestamp, int msgType, const sp<IMemory>& dataPtr) {
+void CamSrcListener::postDataTimestamp(
+        nsecs_t ts, int msg, const sp<IMemory>& data) {
 
-	LOG_LOG("postData(%d, dataPtr:%p, ptr:%p, size:%d)",
-			msgType, (OMX_PTR)(&dataPtr), dataPtr->pointer(), dataPtr->size());
+	LOG_LOG("listener postData %d, dataPtr:%p, ptr:%p, size:%d",
+			msg, (OMX_PTR)(&data), data->pointer(), data->size());
 
-	mSource->dataCallbackTimestamp((OMX_TICKS)timestamp/1000, (OMX_S32)msgType, (OMX_PTR)(&dataPtr));
+	mSource->dataCallbackTimestamp((OMX_TICKS)ts/1000, (OMX_S32)msg, (OMX_PTR)(&data));
 }
 
 static OMX_S32 getColorFormat(const char* colorFormat) {
@@ -454,8 +454,8 @@ OMX_ERRORTYPE CameraSource::SetDevice()
 
 			mCameraRecordingProxy->startRecording(mProxyListener);
 		} else {
-			CameraSourceListener *mListener;
-			mListener = FSL_NEW(CameraSourceListener, (this));
+			CamSrcListener *mListener;
+			mListener = FSL_NEW(CamSrcListener, (this));
 			mListenerPtr = (OMX_PTR)mListener;
 
 			mCamera->setListener(mListener);
@@ -565,9 +565,9 @@ OMX_ERRORTYPE CameraSource::StopDevice()
 			mCameraRecordingProxy->stopRecording();
 		} else {
 			mCamera->setListener(NULL);
-			LOG_DEBUG("CameraSourceListener removed.\n");
+			LOG_DEBUG("CamSrcListener removed.\n");
 			if (mListenerPtr) {
-				CameraSourceListener *mListener = (CameraSourceListener *)mListenerPtr;
+				CamSrcListener *mListener = (CamSrcListener *)mListenerPtr;
 				mListenerPtr = NULL;
 			}
 			printf("stopRecording.\n");

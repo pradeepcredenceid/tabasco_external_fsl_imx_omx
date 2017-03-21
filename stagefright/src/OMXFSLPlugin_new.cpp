@@ -1,12 +1,13 @@
 /**
- *  Copyright (c) 2011-2015, Freescale Semiconductor Inc.,
+ *  Copyright (C) 2011-2016 Freescale Semiconductor, Inc.
  *  All Rights Reserved.
  *
  *  The following programs are the sole property of Freescale Semiconductor Inc.,
  *  and contain its proprietary and confidential information.
  *
  */
-
+//#define LOG_NDEBUG 0
+#define LOG_TAG "OMXFSLPlugin"
 #if (ANDROID_VERSION <= ICS)
     #include <media/stagefright/OMXPluginBase.h>
     #include <media/stagefright/HardwareAPI.h>
@@ -20,6 +21,7 @@
 #include <gralloc_priv.h>
 #include <ui/Rect.h>
 #include <ui/GraphicBufferMapper.h>
+#include <inttypes.h>
 
 #include "OMX_Index.h"
 #include "OMX_Implement.h"
@@ -32,9 +34,26 @@
 
 #if (ANDROID_VERSION >= MARSH_MALLOW_600)
 #include "media/openmax/OMX_IndexExt.h"
+#include "media/openmax/OMX_AudioExt.h"
 #endif
 
 #define MAX_BUFFER_CNT (32)
+
+// flac definitions keep align with OMX_Audio.h and OMX_Index in frameworks/native/include/media/openmax
+#define OMX_AUDIO_CodingAndroidFLAC 28
+#define OMX_IndexParamAudioAndroidFlac 0x400001C
+
+typedef struct OMX_AUDIO_PARAM_ANDROID_FLACTYPE {
+    OMX_U32 nSize;            /**< size of the structure in bytes */
+    OMX_VERSIONTYPE nVersion; /**< OMX specification version information */
+    OMX_U32 nPortIndex;       /**< port that this structure applies to */
+    OMX_U32 nChannels;        /**< Number of channels */
+    OMX_U32 nSampleRate;      /**< Sampling rate of the source data.  Use 0 for
+                                   unknown sampling rate. */
+    OMX_U32 nCompressionLevel;/**< FLAC compression level, from 0 (fastest compression)
+                                   to 8 (highest compression */
+} OMX_AUDIO_PARAM_ANDROID_FLACTYPE;
+
 
 namespace android {
 
@@ -107,6 +126,7 @@ class FSLOMXWrapper {
         OMX_BOOL bEnableNativeBuffers;
         OMX_U32 nNativeBuffersUsage;
         OMX_BOOL bStoreMetaData;
+        OMX_BOOL bStoreANWBufferInMetadata;
         OMX_BOOL bSetGrallocBufferParameter;
         BufferMapper sBufferMapper[MAX_BUFFER_CNT];
         OMX_S32 nBufferCnt;
@@ -321,6 +341,7 @@ FSLOMXWrapper::FSLOMXWrapper()
     ComponentHandle = NULL;
     nNativeBuffersUsage = GRALLOC_USAGE_SW_READ_NEVER | GRALLOC_USAGE_SW_WRITE_NEVER | GRALLOC_USAGE_FORCE_CONTIGUOUS;
     bStoreMetaData = OMX_FALSE;
+    bStoreANWBufferInMetadata = OMX_FALSE;
     bSetGrallocBufferParameter = OMX_FALSE;
     bGotPixelFormat = OMX_FALSE;
     memset(&WrapperHandle, 0, sizeof(OMX_COMPONENTTYPE));
@@ -427,6 +448,14 @@ OMX_ERRORTYPE FSLOMXWrapper::GetParameter(
                 pParams->bStoreMetaData = bStoreMetaData;
             }
             break;
+        case OMX_IndexParamStoreANWBufferInMetadata:
+            {
+                StoreMetaDataInBuffersParams *pParams = (StoreMetaDataInBuffersParams*)pStructure;
+                if(pParams->nPortIndex != 0)
+                    return OMX_ErrorUnsupportedIndex;
+                pParams->bStoreMetaData = bStoreANWBufferInMetadata;
+            }
+            break;
 #if (ANDROID_VERSION >= KITKAT_44)
         case OMX_IndexParamVideoPortFormat:
             {
@@ -437,6 +466,9 @@ OMX_ERRORTYPE FSLOMXWrapper::GetParameter(
 
                 if(pParams->eCompressionFormat == OMX_VIDEO_CodingVP9)
                     pParams->eCompressionFormat = (OMX_VIDEO_CODINGTYPE)10;
+
+                if(pParams->eCompressionFormat == OMX_VIDEO_CodingHEVC)
+                    pParams->eCompressionFormat = (OMX_VIDEO_CODINGTYPE)11;
             }
             break;
 #endif
@@ -448,7 +480,84 @@ OMX_ERRORTYPE FSLOMXWrapper::GetParameter(
                 *usageBits = GRALLOC_USAGE_HW_VIDEO_ENCODER | GRALLOC_USAGE_FORCE_CONTIGUOUS;
             }
             break;
+            case OMX_IndexParamAudioAndroidAc3:
+            {
+                OMX_AUDIO_PARAM_ANDROID_AC3TYPE *pAc3Type;
+                OMX_AUDIO_PARAM_AC3TYPE Ac3Type;
+
+                pAc3Type = (OMX_AUDIO_PARAM_ANDROID_AC3TYPE*)pStructure;
+                OMX_INIT_STRUCT(&Ac3Type,OMX_AUDIO_PARAM_AC3TYPE);
+                Ac3Type.nPortIndex = pAc3Type->nPortIndex;
+                ret = OMX_GetParameter(ComponentHandle, OMX_IndexParamAudioAc3, &Ac3Type);
+                if(ret != OMX_ErrorNone)
+                    return OMX_ErrorUndefined;
+
+                pAc3Type->nChannels = Ac3Type.nChannels;
+                pAc3Type->nSampleRate = Ac3Type.nSampleRate;
+                break;
+            }
+            case OMX_IndexParamAudioAndroidEac3:
+            {
+                OMX_AUDIO_PARAM_ANDROID_EAC3TYPE *pEac3Type;
+                OMX_AUDIO_PARAM_EC3TYPE Eac3Type;
+
+                pEac3Type = (OMX_AUDIO_PARAM_ANDROID_EAC3TYPE*)pStructure;
+                OMX_INIT_STRUCT(&Eac3Type,OMX_AUDIO_PARAM_EC3TYPE);
+                Eac3Type.nPortIndex = pEac3Type->nPortIndex;
+                ret = OMX_GetParameter(ComponentHandle, OMX_IndexParamAudioEc3, &Eac3Type);
+                if(ret != OMX_ErrorNone)
+                    return OMX_ErrorUndefined;
+
+                pEac3Type->nChannels = Eac3Type.nChannels;
+                pEac3Type->nSampleRate = Eac3Type.nSampleRate;
+                break;
+            }
+            case OMX_IndexParamPortDefinition:
+            {
+                ret = OMX_GetParameter(ComponentHandle, nParamIndex, pStructure);
+                if(ret != OMX_ErrorNone)
+                    return ret;
+
+                OMX_PARAM_PORTDEFINITIONTYPE *pPortDef;
+                pPortDef = (OMX_PARAM_PORTDEFINITIONTYPE*)pStructure;
+                if (pPortDef->eDomain == OMX_PortDomainAudio) {
+                    OMX_AUDIO_PORTDEFINITIONTYPE *audioDef = &(pPortDef->format.audio);
+                    switch ((int)audioDef->eEncoding) {
+                        case OMX_AUDIO_CodingAC3:
+                            audioDef->eEncoding = (OMX_AUDIO_CODINGTYPE)OMX_AUDIO_CodingAndroidAC3;
+                            break;
+                        case OMX_AUDIO_CodingEC3:
+                            audioDef->eEncoding = (OMX_AUDIO_CODINGTYPE)OMX_AUDIO_CodingAndroidEAC3;
+                            break;
+                        case OMX_AUDIO_CodingFLAC:
+                            audioDef->eEncoding = (OMX_AUDIO_CODINGTYPE)OMX_AUDIO_CodingAndroidFLAC;
+                            break;
+                        default:
+                            break;
+                    }
+                }
+                break;
+            }
+            case OMX_IndexParamAudioAndroidFlac:
+                {
+                    OMX_AUDIO_PARAM_FLACTYPE flacType;
+                    OMX_AUDIO_PARAM_ANDROID_FLACTYPE *pAndroidFlacType = (OMX_AUDIO_PARAM_ANDROID_FLACTYPE*)pStructure;
+                    if(pAndroidFlacType->nPortIndex != 0)
+                        return OMX_ErrorUnsupportedIndex;
+
+                    OMX_INIT_STRUCT(&flacType, OMX_AUDIO_PARAM_FLACTYPE);
+                    flacType.nPortIndex = pAndroidFlacType->nPortIndex;
+                    ret = OMX_GetParameter(ComponentHandle, OMX_IndexParamAudioFlac, &flacType);
+                    if(ret == OMX_ErrorNone){
+                        pAndroidFlacType->nChannels = flacType.nChannels;
+                        pAndroidFlacType->nSampleRate = flacType.nSampleRate;
+                    }
+                }
+                break;
+
 #endif
+
+
         default:
             ret = OMX_GetParameter(ComponentHandle, nParamIndex, pStructure);
     };
@@ -518,6 +627,31 @@ OMX_ERRORTYPE FSLOMXWrapper::SetParameter(
                 }
             }
             break;
+        case OMX_IndexParamStoreANWBufferInMetadata:
+            {
+                StoreMetaDataInBuffersParams *pParams = (StoreMetaDataInBuffersParams*)pStructure;
+                if(pParams->nPortIndex != 0)
+                    return OMX_ErrorUnsupportedIndex;
+                bStoreANWBufferInMetadata = pParams->bStoreMetaData;
+
+                OMX_CONFIG_BOOLEANTYPE sStoreMetaData;
+                OMX_INIT_STRUCT(&sStoreMetaData, OMX_CONFIG_BOOLEANTYPE);
+                sStoreMetaData.bEnabled = bStoreANWBufferInMetadata;
+                nParamIndex = OMX_IndexParamStoreMetaDataInBuffers;
+                ret = OMX_SetParameter(ComponentHandle, nParamIndex, &sStoreMetaData);
+
+                if (bStoreANWBufferInMetadata == OMX_TRUE) {
+                    OMX_PARAM_PORTDEFINITIONTYPE sPortDef;
+
+                    OMX_INIT_STRUCT(&sPortDef, OMX_PARAM_PORTDEFINITIONTYPE);
+                    sPortDef.nPortIndex = pParams->nPortIndex;
+                    OMX_GetParameter(ComponentHandle, OMX_IndexParamPortDefinition, &sPortDef);
+                    sPortDef.nBufferSize = 4 + sizeof(buffer_handle_t) + sizeof(int);
+                    OMX_SetParameter(ComponentHandle, OMX_IndexParamPortDefinition, &sPortDef);
+                    bSetGrallocBufferParameter = OMX_FALSE;
+                }
+            }
+            break;
         case OMX_IndexParamUseAndroidNativeBuffer:
             {
                 UseAndroidNativeBufferParams *pParams = (UseAndroidNativeBufferParams*)pStructure;
@@ -545,6 +679,8 @@ OMX_ERRORTYPE FSLOMXWrapper::SetParameter(
                     pParams->eCompressionFormat = (OMX_VIDEO_CODINGTYPE)OMX_VIDEO_CodingVP8;
                 if(pParams->eCompressionFormat == 10)
                     pParams->eCompressionFormat = (OMX_VIDEO_CODINGTYPE)OMX_VIDEO_CodingVP9;
+                if(pParams->eCompressionFormat == 11)
+                    pParams->eCompressionFormat = (OMX_VIDEO_CODINGTYPE)OMX_VIDEO_CodingHEVC;
                 ret = OMX_SetParameter(ComponentHandle, nParamIndex, pStructure);
             }
             break;
@@ -568,7 +704,7 @@ OMX_ERRORTYPE FSLOMXWrapper::SetParameter(
                 if(pAdaptivePlayback->bEnable){
                     info.nWidthStride = pAdaptivePlayback->nMaxFrameWidth;
                     info.nHeightStride = pAdaptivePlayback->nMaxFrameHeight;
-                    info.nMaxBufferCnt = 20;
+                    info.nMaxBufferCnt = 16;
                 }else{
                     info.nWidthStride = -1;
                     info.nHeightStride = -1;
@@ -579,10 +715,28 @@ OMX_ERRORTYPE FSLOMXWrapper::SetParameter(
             }
             break;
         case OMX_IndexParamPortDefinition:
+        {
+            OMX_PARAM_PORTDEFINITIONTYPE *pPortDef = (OMX_PARAM_PORTDEFINITIONTYPE*)pStructure;
+            if (pPortDef->eDomain == OMX_PortDomainAudio) {
+                OMX_AUDIO_PORTDEFINITIONTYPE *audioDef = &(pPortDef->format.audio);
+                switch ((int)audioDef->eEncoding) {
+                    case OMX_AUDIO_CodingAndroidAC3:
+                        audioDef->eEncoding = (OMX_AUDIO_CODINGTYPE)OMX_AUDIO_CodingAC3;
+                        break;
+                    case OMX_AUDIO_CodingAndroidEAC3:
+                        audioDef->eEncoding = (OMX_AUDIO_CODINGTYPE)OMX_AUDIO_CodingEC3;
+                        break;
+                    case OMX_AUDIO_CodingAndroidFLAC:
+                        audioDef->eEncoding = (OMX_AUDIO_CODINGTYPE)OMX_AUDIO_CodingFLAC;
+                        break;
+                    default:
+                        break;
+                }
+            }
+
             //when enable native buffer, the color format set from ACodec.cpp is pixel format.
             //so need to convert to OMX color format.
             if(bEnableNativeBuffers){
-                OMX_PARAM_PORTDEFINITIONTYPE *pPortDef = (OMX_PARAM_PORTDEFINITIONTYPE*)pStructure;
                 if(pPortDef->nPortIndex == 1 && OMX_PortDomainVideo == pPortDef->eDomain){
                     OMX_U32 format = 0;
                     format = ConvertAndroidToOMXColorFormat(pPortDef->format.video.eColorFormat);
@@ -592,6 +746,50 @@ OMX_ERRORTYPE FSLOMXWrapper::SetParameter(
             }
             ret = OMX_SetParameter(ComponentHandle, nParamIndex, pStructure);
             break;
+        }
+#if (ANDROID_VERSION >= MARSH_MALLOW_600)
+        case OMX_IndexParamAudioAndroidAc3:
+        {
+            OMX_AUDIO_PARAM_ANDROID_AC3TYPE *pAc3Type;
+            OMX_AUDIO_PARAM_AC3TYPE Ac3Type;
+            OMX_INIT_STRUCT(&Ac3Type,OMX_AUDIO_PARAM_AC3TYPE);
+
+            pAc3Type = (OMX_AUDIO_PARAM_ANDROID_AC3TYPE*)pStructure;
+            Ac3Type.nPortIndex = pAc3Type->nPortIndex;
+            Ac3Type.nChannels = pAc3Type->nChannels;
+            Ac3Type.nSampleRate = pAc3Type->nSampleRate;
+            ret = OMX_SetParameter(ComponentHandle, (OMX_INDEXTYPE)OMX_IndexParamAudioAc3, &Ac3Type);
+            break;
+        }
+        case OMX_IndexParamAudioAndroidEac3:
+        {
+            OMX_AUDIO_PARAM_ANDROID_EAC3TYPE *pEac3Type;
+            OMX_AUDIO_PARAM_EC3TYPE Eac3Type;
+            OMX_INIT_STRUCT(&Eac3Type,OMX_AUDIO_PARAM_EC3TYPE);
+
+            pEac3Type = (OMX_AUDIO_PARAM_ANDROID_EAC3TYPE*)pStructure;
+            Eac3Type.nPortIndex = pEac3Type->nPortIndex;
+            Eac3Type.nChannels = pEac3Type->nChannels;
+            Eac3Type.nSampleRate = pEac3Type->nSampleRate;
+            ret = OMX_SetParameter(ComponentHandle, (OMX_INDEXTYPE)OMX_IndexParamAudioEc3, &Eac3Type);
+            break;
+        }
+        case OMX_IndexParamAudioAndroidFlac:
+        {
+            OMX_AUDIO_PARAM_ANDROID_FLACTYPE *pAndroidFlacType;
+            pAndroidFlacType = (OMX_AUDIO_PARAM_ANDROID_FLACTYPE*)pStructure;
+            if(pAndroidFlacType->nPortIndex != 0)
+                return OMX_ErrorUnsupportedIndex;
+
+            OMX_AUDIO_PARAM_FLACTYPE flacType;
+            OMX_INIT_STRUCT(&flacType,OMX_AUDIO_PARAM_FLACTYPE);
+            flacType.nPortIndex = pAndroidFlacType->nPortIndex;
+            flacType.nChannels = pAndroidFlacType->nChannels;
+            flacType.nSampleRate = pAndroidFlacType->nSampleRate;
+            ret = OMX_SetParameter(ComponentHandle, OMX_IndexParamAudioFlac, &flacType);
+            break;
+        }
+#endif
         default:
             ret = OMX_SetParameter(ComponentHandle, nParamIndex, pStructure);
     };
@@ -609,6 +807,8 @@ OMX_ERRORTYPE FSLOMXWrapper::GetExtensionIndex(
         *pIndexType = OMX_IndexParamNativeBufferUsage;
     else if(!strcmp(cParameterName, "OMX.google.android.index.storeMetaDataInBuffers"))
         *pIndexType = OMX_IndexParamStoreMetaDataInBuffers;
+    else if(!strcmp(cParameterName, "OMX.google.android.index.storeANWBufferInMetadata"))
+        *pIndexType = OMX_IndexParamStoreANWBufferInMetadata;
     else if(!strcmp(cParameterName, "OMX.google.android.index.storeGraphicBufferInMetaData"))
         *pIndexType = OMX_IndexParamStoreMetaDataInBuffers;
     else if(!strcmp(cParameterName, "OMX.google.android.index.useAndroidNativeBuffer"))
@@ -663,9 +863,9 @@ OMX_ERRORTYPE FSLOMXWrapper::DoUseNativeBuffer(
         return OMX_ErrorUndefined;
     }
 
-    LOGV("native buffer handle %p, phys %p, virs %p, size %d\n", prvHandle, (OMX_PTR)prvHandle->phys, vAddr, prvHandle->size);
+    LOGV("native buffer handle %p, %" PRIx64 ", virs %p, size %d\n", prvHandle, prvHandle->phys, vAddr, prvHandle->size);
 
-    AddHwBuffer((OMX_PTR)prvHandle->phys, vAddr);
+    AddHwBuffer((OMX_PTR)(unsigned long)prvHandle->phys, vAddr);
 
     OMX_ERRORTYPE ret = OMX_ErrorNone;
     ret = OMX_UseBuffer(ComponentHandle, pNativBufferParam->bufferHeader,
@@ -689,7 +889,7 @@ OMX_ERRORTYPE FSLOMXWrapper::EmptyThisBuffer(
         OMX_BUFFERHEADERTYPE* pBufferHdr)
 {
 #if (ANDROID_VERSION >= JELLY_BEAN_42)
-    if (bStoreMetaData == OMX_TRUE && pBufferHdr->nFilledLen >= 8) {
+    if ((bStoreMetaData == OMX_TRUE || bStoreANWBufferInMetadata == OMX_TRUE)&& pBufferHdr->nFilledLen >= 8) {
 		OMX_U32 *pTempBuffer;
 		OMX_U32 nMetadataBufferType;
         OMX_BOOL bGraphicBuffer = OMX_FALSE;
@@ -715,6 +915,9 @@ OMX_ERRORTYPE FSLOMXWrapper::EmptyThisBuffer(
             bGraphicBuffer = OMX_TRUE;
         }
 #endif
+        //ANW buffer in nougat is different with that in marshmallow, so add a new variable for it.
+        if(bStoreANWBufferInMetadata)
+            bGraphicBuffer = OMX_FALSE;
 
         private_handle_t* pGrallocHandle;
         buffer_handle_t  tBufHandle;
@@ -722,18 +925,24 @@ OMX_ERRORTYPE FSLOMXWrapper::EmptyThisBuffer(
         pTempBuffer++;
 
         if(bGraphicBuffer == OMX_TRUE){
-            GraphicBuffer *buffer = (GraphicBuffer *)*pTempBuffer;
+            GraphicBuffer *buffer = (GraphicBuffer *)(unsigned long)*pTempBuffer;
             tBufHandle = buffer->handle;
         }else{
             tBufHandle =  *((buffer_handle_t *)pTempBuffer);
         }
 
+        if(bStoreANWBufferInMetadata){
+            //get buffer handle from ANativeWindowBuffer pointer.
+            ANativeWindowBuffer * pBuffer = (ANativeWindowBuffer *)(unsigned long)*pTempBuffer;
+            tBufHandle = pBuffer->handle;
+        }
+
         pGrallocHandle = (private_handle_t*) tBufHandle;
-        LOGV("Grallloc buffer recieved in metadata buffer 0x%x",pGrallocHandle );
+        LOGV("Grallloc buffer recieved in metadata buffer 0x%p",pGrallocHandle );
 
         ((METADATA_BUFFER *)(pBufferHdr->pBuffer))->pPhysicAddress = \
-           (OMX_PTR) pGrallocHandle->phys;
-        LOGV("%s Gralloc=0x%x, phys = 0x%x", __FUNCTION__, pGrallocHandle,
+           (OMX_PTR)(unsigned long) pGrallocHandle->phys;
+        LOGV("%s Gralloc=0x%p, phys = 0x%" PRIx64 "", __FUNCTION__, pGrallocHandle,
                 pGrallocHandle->phys);
 
         if (bSetGrallocBufferParameter == OMX_FALSE) {
@@ -743,6 +952,7 @@ OMX_ERRORTYPE FSLOMXWrapper::EmptyThisBuffer(
             sGrallocBufferParam.nPortIndex = 0;
 
             sGrallocBufferParam.eColorFormat = OMX_COLOR_FormatYUV420SemiPlanar;
+            ALOGV("pGrallocHandle format=%d",pGrallocHandle->format);
             switch(pGrallocHandle->format) {
                 case HAL_PIXEL_FORMAT_YCbCr_420_SP:
                     sGrallocBufferParam.eColorFormat = OMX_COLOR_FormatYUV420SemiPlanar;

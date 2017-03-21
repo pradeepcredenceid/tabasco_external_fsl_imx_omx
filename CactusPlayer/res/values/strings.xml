@@ -20,7 +20,7 @@
     <string name="noRemote_control">"No Remote Control"</string>
     <string name="Warning">Warning</string>
     <string name="quit">"quit"</string>
-    <string name="PermissionNotGrant">Fail to grant permission. App maybe crash. Still run it?</string>
+    <string name="PermissionNotGrant">Fail to grant permission.Please grant the storage in Settings,or app maybe crash. Still run it?</string>
     <array name="str_body">
         <item>PALY</item>
         <item>SECOND VIDEO PLAY</item>

@@ -7,8 +7,6 @@ LOCAL_MODULE_TAGS := optional
 
 LOCAL_SRC_FILES := $(call all-java-files-under, src)
 
-LOCAL_JAVA_LIBRARIES := freescale-extended
-
 LOCAL_PACKAGE_NAME := CactusPlayer
 
 #LOCAL_SDK_VERSION := current

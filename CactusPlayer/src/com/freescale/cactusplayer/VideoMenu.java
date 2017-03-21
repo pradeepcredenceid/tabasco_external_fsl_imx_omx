@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Freescale Semiconductor, Inc.
+ * Copyright (C) 2014-2016 Freescale Semiconductor, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -53,6 +53,11 @@ import android.view.View;
 import android.view.ViewGroup.LayoutParams;
 import android.view.View.OnClickListener;
 import android.view.Window;
+import android.content.pm.PackageManager;
+import android.Manifest;
+import android.app.AlertDialog;
+import android.app.Dialog;
+import android.content.DialogInterface;
 
 public class VideoMenu extends Activity {
     private static final String TAG   = "CactusPlayer";
@@ -75,6 +80,13 @@ public class VideoMenu extends Activity {
     private static final int mPresentation_disabled = 0;
     private static final int mPresentation_playing = 1;
     private static final int mPresentation_pausing = 2;
+	
+	//Permission related member
+	private int mNumPermissionsToRequest = 0;
+	private boolean mShouldRequestStoragePermission = false;
+	private boolean mFlagHasStoragePermission = true;
+	private int mIndexPermissionRequestStorage = 0;
+	private static final int PERMISSION_REQUEST_CODE = 0;
 /*
     // Try to be smarter
     // Return EXTERNAL_STORAGE_DIRECTORY_SD if SD card is ready
@@ -101,11 +113,85 @@ public class VideoMenu extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         Log.d(TAG, CLASS + "onCreate");
         super.onCreate(savedInstanceState);
-
-        boolean isRestored = (savedInstanceState != null);
+		boolean isRestored = (savedInstanceState != null);
         //HDPlusPlayer.loadNativeLibs();
         //requestWindowFeature(Window.FEATURE_NO_TITLE);//hide label bar
         setContentView(R.layout.videomenu);
+		checkPermission();
+    }
+	
+	private void checkPermission(){
+
+		if(checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+				!= PackageManager.PERMISSION_GRANTED){
+			mNumPermissionsToRequest++;
+			mShouldRequestStoragePermission  = true;
+		}else{
+			mFlagHasStoragePermission  = true;
+		}
+
+		String[] permissionToRequest = new String[mNumPermissionsToRequest];
+		int permissionRequestIndex = 0;
+
+		if(mShouldRequestStoragePermission){
+			permissionToRequest[permissionRequestIndex] = Manifest.permission.WRITE_EXTERNAL_STORAGE;
+			mIndexPermissionRequestStorage= permissionRequestIndex;
+			permissionRequestIndex++;
+		}
+
+		if(permissionToRequest.length > 0){
+			requestPermissions(permissionToRequest, PERMISSION_REQUEST_CODE);
+		}else{
+			initView();
+		}
+	}	
+
+	@Override
+	public void onRequestPermissionsResult(int requestCode,
+			String permissions[], int[] grantResults) {
+		switch (requestCode) {
+		case PERMISSION_REQUEST_CODE:
+			if (grantResults.length > 0
+					&& grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+				Log.v(TAG, "Grant permission successfully");
+				initView();
+			} else {
+				popupWarningDialog();
+			}
+			break;
+		default:
+			break;
+		}
+	}
+	
+	private void popupWarningDialog(){
+
+		DialogInterface.OnClickListener dialogOnclicListener=new DialogInterface.OnClickListener(){
+
+			@Override
+			public void onClick(DialogInterface dialog, int which) {
+				switch(which){
+				case Dialog.BUTTON_POSITIVE:
+					initView();
+					break;
+				case Dialog.BUTTON_NEGATIVE:
+					VideoMenu.this.finish();
+					break;
+				default:
+					break;
+				}
+			}
+		};
+
+		AlertDialog.Builder builder=new AlertDialog.Builder(this);
+		builder.setTitle(R.string.Warning);
+		builder.setMessage(R.string.PermissionNotGrant);
+		builder.setPositiveButton(R.string.OK,dialogOnclicListener);
+		builder.setNegativeButton(R.string.Cancel, dialogOnclicListener);
+		builder.create().show();
+	}	
+	
+	private void initView(){
         mAdapter = new ImageTextAdapter(this);
         mGridView = (GridView) findViewById(R.id.contentview);
         if(mGridView == null)
@@ -141,7 +227,8 @@ public class VideoMenu extends Activity {
         catch(IllegalStateException e) {
             Log.d(TAG, CLASS + "Exception caught during executing scanning task");
         }
-    }
+	}
+	
     //--------------------------------remote control -------------------------------
 
     @Override

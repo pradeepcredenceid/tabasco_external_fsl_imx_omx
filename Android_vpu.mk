@@ -63,7 +63,7 @@ ifeq ($(TARGET_BOARD_PLATFORM), imx5x)
     FSL_OMX_CFLAGS += -DMX5X
 endif
 ifeq ($(TARGET_BOARD_PLATFORM), imx6)
-    FSL_OMX_INCLUDES += $(LOCAL_PATH)/../../hardware/imx/mx6/libgralloc_wrapper
+    FSL_OMX_INCLUDES += $(LOCAL_PATH)/../../hardware/imx/display/gralloc_v2
     FSL_OMX_CFLAGS += -DMX6X
 endif
 

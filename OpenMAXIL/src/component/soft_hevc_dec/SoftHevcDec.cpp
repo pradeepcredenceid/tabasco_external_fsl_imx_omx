@@ -37,6 +37,8 @@
 #define IVDEXT_CMD_CTL_SET_NUM_CORES    \
         (IVD_CONTROL_API_COMMAND_TYPE_T)IHEVCD_CXA_CMD_CTL_SET_NUM_CORES
 
+#define DEFAULT_FRAME_WIDTH (128)
+#define DEFAULT_FRAME_HEGIHT (128)
 SoftHevcDec::SoftHevcDec()
 {
     int n;
@@ -49,9 +51,25 @@ SoftHevcDec::SoftHevcDec()
     role_cnt = 1;
     role[0] = (OMX_STRING)"video_decoder.hevc";
 
+#if defined(_SC_NPROCESSORS_ONLN)
+    n  = sysconf(_SC_NPROCESSORS_ONLN);
+#else
+    // _SC_NPROC_ONLN must be defined...
+    n  = sysconf(_SC_NPROC_ONLN);
+#endif
+
+    if (n < 1)
+        n = 1;
+
+    nNumCores = n;
+
+    SetDefaultSetting();
+}
+OMX_ERRORTYPE SoftHevcDec::SetDefaultSetting()
+{
     fsl_osal_memset(&sInFmt, 0, sizeof(OMX_VIDEO_PORTDEFINITIONTYPE));
-    sInFmt.nFrameWidth = 320;
-    sInFmt.nFrameHeight = 240;
+    sInFmt.nFrameWidth = DEFAULT_FRAME_WIDTH;
+    sInFmt.nFrameHeight = DEFAULT_FRAME_HEGIHT;
     sInFmt.xFramerate = 30 * Q16_SHIFT;
     sInFmt.eColorFormat = OMX_COLOR_FormatUnused;
     sInFmt.eCompressionFormat = (OMX_VIDEO_CODINGTYPE)OMX_VIDEO_CodingHEVC;
@@ -60,8 +78,8 @@ SoftHevcDec::SoftHevcDec()
     nOutPortFormatCnt = 1;
     eOutPortPormat[0] = OMX_COLOR_FormatYUV420Planar;
 
-    sOutFmt.nFrameWidth = 320;
-    sOutFmt.nFrameHeight = 240;
+    sOutFmt.nFrameWidth = DEFAULT_FRAME_WIDTH;
+    sOutFmt.nFrameHeight = DEFAULT_FRAME_HEGIHT;
     sOutFmt.eColorFormat = OMX_COLOR_FormatYUV420Planar;
     sOutFmt.eCompressionFormat = OMX_VIDEO_CodingUnused;
 
@@ -77,20 +95,9 @@ SoftHevcDec::SoftHevcDec()
     bInEos = OMX_FALSE;
     bOutEos = OMX_FALSE;
     pInternalBuffer = NULL;
-    nWidth = 320;
-    nHeight = 240;
+    nWidth = DEFAULT_FRAME_WIDTH;
+    nHeight = DEFAULT_FRAME_HEGIHT;
 
-#if defined(_SC_NPROCESSORS_ONLN)
-    n  = sysconf(_SC_NPROCESSORS_ONLN);
-#else
-    // _SC_NPROC_ONLN must be defined...
-    n  = sysconf(_SC_NPROC_ONLN);
-#endif
-
-    if (n < 1)
-        n = 1;
-
-    nNumCores = n;
 
     OMX_INIT_STRUCT(&sOutCrop, OMX_CONFIG_RECTTYPE);
     sOutCrop.nPortIndex = OUT_PORT;
@@ -104,6 +111,10 @@ SoftHevcDec::SoftHevcDec()
     eDecState = HEVC_DEC_INIT;
     LOG_LOG("SoftHevcDec::SoftHevcDec");
 
+    nFrameWidthStride=-1;//default: invalid
+    nFrameHeightStride=-1;
+    nFrameMaxCnt=-1;
+    return OMX_ErrorNone;
 }
 static void * ivd_aligned_malloc(void *ctxt, WORD32 alignment, WORD32 size) {
     return memalign(alignment, size);
@@ -139,12 +150,59 @@ OMX_ERRORTYPE SoftHevcDec::SetConfig(OMX_INDEXTYPE nIndex, OMX_PTR pComponentCon
             pC = (OMX_CONFIG_CLOCK*) pComponentConfigStructure;
             pClock = pC->hClock;
             break;
+        case OMX_IndexConfigVideoMediaTime:
+        {
+            OMX_CONFIG_VIDEO_MEDIA_TIME *pInfo = (OMX_CONFIG_VIDEO_MEDIA_TIME*)pComponentConfigStructure;
+            SetMediaTime(pInfo->nTime);
+            break;
+        }
+        case OMX_IndexConfigAndroidOperatingRate:
+        {
+            OMX_PARAM_U32TYPE *pInfo = (OMX_PARAM_U32TYPE*)pComponentConfigStructure;
+            float speed = (float)pInfo->nU32 / (float)Q16_SHIFT;
+            LOG_DEBUG("speed=%f",speed);
+            if(speed > 50.0){
+                bDropPB = OMX_TRUE;
+            }else
+                bDropPB = OMX_FALSE;
+            break;
+        }
         default:
             break;
     }
     return OMX_ErrorNone;
 }
+OMX_ERRORTYPE SoftHevcDec::SetParameter(
+        OMX_INDEXTYPE nParamIndex,
+        OMX_PTR pComponentParameterStructure)
+{
+    OMX_ERRORTYPE ret = OMX_ErrorNone;
+    if(NULL == pComponentParameterStructure)
+        return OMX_ErrorBadParameter;
 
+    switch((int)nParamIndex){
+        case OMX_IndexParamStandardComponentRole:
+            break;
+        case OMX_IndexParamVideoRegisterFrameExt:
+            {
+                OMX_VIDEO_REG_FRM_EXT_INFO* pExtInfo=(OMX_VIDEO_REG_FRM_EXT_INFO*)pComponentParameterStructure;
+                if(pExtInfo->nPortIndex==OUT_PORT){
+                    nFrameWidthStride=pExtInfo->nWidthStride;
+                    nFrameHeightStride=pExtInfo->nHeightStride;
+                    nFrameMaxCnt = pExtInfo->nMaxBufferCnt;
+                    LOG_DEBUG("set OMX_IndexParamVideoRegisterFrameExt width=%d,height=%d",
+                        nFrameWidthStride,nFrameHeightStride);
+                }
+                break;
+            }
+        default:
+            LOG_ERROR("SetParameter index=%x",nParamIndex);
+            ret = OMX_ErrorNotImplemented;
+            break;
+    }
+
+    return ret;
+}
 void SoftHevcDec::logVersion() {
     ivd_ctl_getversioninfo_ip_t s_ctl_ip;
     ivd_ctl_getversioninfo_op_t s_ctl_op;
@@ -257,8 +315,6 @@ OMX_ERRORTYPE SoftHevcDec::initDecoder()
     OMX_U32 displayHeight = nHeight;
     OMX_U32 displaySizeY = displayStride * displayHeight;
 
-    mCodecCtx = NULL;
-
 
     /* Initialize the decoder */
     {
@@ -296,7 +352,7 @@ OMX_ERRORTYPE SoftHevcDec::initDecoder()
     bInFlush = OMX_FALSE;
 
     bChangingResolution = OMX_FALSE;
-
+    bDropPB = OMX_FALSE;
     /* Set the run time (dynamic) parameters */
     setDisplayStride(displayStride);
 
@@ -431,6 +487,7 @@ OMX_ERRORTYPE SoftHevcDec::InitFilterComponent()
     nNalLen = 0;
     bCodecDataParsed = OMX_FALSE;
     bNeedCopyCodecData = OMX_TRUE;
+    mCodecCtx = NULL;
 
     return OMX_ErrorNone;
 }
@@ -443,10 +500,15 @@ OMX_ERRORTYPE SoftHevcDec::DeInitFilterComponent()
 OMX_ERRORTYPE SoftHevcDec::InitFilter()
 {
 
-    nWidth = 320;
-    nHeight = 240;
+    nWidth = DEFAULT_FRAME_WIDTH;
+    nHeight = DEFAULT_FRAME_HEGIHT;
 
     LOG_DEBUG("SoftHevcDec::InitFilter");
+
+    if(nFrameWidthStride > 0 && nFrameHeightStride > 0){
+        nWidth = nFrameWidthStride;
+        nHeight = nFrameHeightStride;
+    }
 
     initDecoder();
 
@@ -467,7 +529,7 @@ OMX_ERRORTYPE SoftHevcDec::InitFilter()
 OMX_ERRORTYPE SoftHevcDec::DeInitFilter()
 {
     deInitDecoder();
-
+    SetDefaultSetting();
     return OMX_ErrorNone;
 }
 OMX_ERRORTYPE SoftHevcDec::ParseCodecInfo()
@@ -497,10 +559,17 @@ OMX_ERRORTYPE SoftHevcDec::ParseCodecInfo()
 
     ptr = (OMX_U8 *)pCodecData;
 
+
     lengthSizeMinusOne= ptr[21];
     lengthSizeMinusOne &= 0x03;
     nNalLen = lengthSizeMinusOne+1; /* lengthSizeMinusOne = 0x11, 0b1111 1111 */
     LOG_DEBUG("ParseCodecInfo nal len=%d",nNalLen);
+
+    //do not modify the buffer if it has been converted
+    if(ptr[0] == 0x0 && ptr[1] == 0x0 && ptr[2] == 0x0 && ptr[3] == 0x1){
+        LOG_DEBUG("SoftHevcDec ParseCodecInfo skip bytestream");
+        return OMX_ErrorNone;
+    }
 
     blockNum = ptr[22];
 
@@ -639,9 +708,9 @@ OMX_ERRORTYPE SoftHevcDec::SetInputBuffer(
         OMX_BOOL bMalFormed = OMX_FALSE;
         OMX_U8 * ptr = (OMX_U8 *)pBuffer;
 
-        //do not modify the buffer we have changed before
+        //do not modify the buffer if it is bytestream format
         if(ptr[0] == 0x0 && ptr[1] == 0x0 && ptr[2] == 0x0 && ptr[3] == 0x1){
-            LOG_DEBUG("SoftHevcDec SetInputBuffer skip same buffer");
+            LOG_DEBUG("SoftHevcDec SetInputBuffer skip bytestream buffer");
             goto bail;
         }
 
@@ -714,43 +783,53 @@ OMX_ERRORTYPE SoftHevcDec::SetOutputBuffer(OMX_PTR pBuffer)
 
 OMX_ERRORTYPE SoftHevcDec::ProcessQOS()
 {
-    OMX_TIME_CONFIG_TIMESTAMPTYPE sCur;
+
     OMX_TIME_CONFIG_SCALETYPE sScale;
     OMX_TICKS nTimeStamp;
     OMX_S32 param;
-
-    nTimeStamp=QueryStreamTs();
-
-    if(nTimeStamp < 0 || pClock == NULL)
-        return OMX_ErrorNone;
-
-    OMX_TIME_CONFIG_PLAYBACKTYPE sPlayback;
-    OMX_INIT_STRUCT(&sPlayback, OMX_TIME_CONFIG_PLAYBACKTYPE);
-    OMX_GetConfig(pClock, OMX_IndexConfigPlaybackRate, &sPlayback);
-    if(sPlayback.ePlayMode != NORMAL_MODE){
-        return OMX_ErrorNone;
-    }
-    OMX_INIT_STRUCT(&sCur, OMX_TIME_CONFIG_TIMESTAMPTYPE);
-    OMX_GetConfig(pClock, OMX_IndexConfigTimeCurrentMediaTime, &sCur);
-
+    OMX_S64 media_ts = 0;
     ivd_ctl_set_config_ip_t s_ctl_ip;
     ivd_ctl_set_config_op_t s_ctl_op;
     IV_API_CALL_STATUS_T status;
 
-    if(sOutFmt.nFrameWidth >= 1920){
-        if(nTimeStamp > sCur.nTimestamp + 2*DROP_B_THRESHOLD)
-            s_ctl_ip.e_frm_skip_mode = IVD_SKIP_B;
-        else
-            s_ctl_ip.e_frm_skip_mode = IVD_SKIP_PB;
+    nTimeStamp=QueryStreamTs();
+
+    if(nTimeStamp < 0)
+        return OMX_ErrorNone;
+
+    if(!bDropPB){
+        if(pClock!=NULL){
+            OMX_TIME_CONFIG_TIMESTAMPTYPE sCur;
+            OMX_TIME_CONFIG_PLAYBACKTYPE sPlayback;
+            OMX_INIT_STRUCT(&sPlayback, OMX_TIME_CONFIG_PLAYBACKTYPE);
+            OMX_GetConfig(pClock, OMX_IndexConfigPlaybackRate, &sPlayback);
+            if(sPlayback.ePlayMode != NORMAL_MODE){
+                return OMX_ErrorNone;
+            }
+            OMX_INIT_STRUCT(&sCur, OMX_TIME_CONFIG_TIMESTAMPTYPE);
+            OMX_GetConfig(pClock, OMX_IndexConfigTimeCurrentMediaTime, &sCur);
+            media_ts = sCur.nTimestamp;
+        }else if(OMX_ErrorNone != GetMediaTime(&media_ts))
+            return OMX_ErrorNone;
+
+        if(sOutFmt.nFrameWidth >= 1920){
+            if(nTimeStamp > media_ts + 2*DROP_B_THRESHOLD)
+                s_ctl_ip.e_frm_skip_mode = IVD_SKIP_B;
+            else
+                s_ctl_ip.e_frm_skip_mode = IVD_SKIP_PB;
+        }else{
+            if(nTimeStamp > media_ts + DROP_B_THRESHOLD)
+                s_ctl_ip.e_frm_skip_mode = IVD_SKIP_NONE;
+            else
+                s_ctl_ip.e_frm_skip_mode = IVD_SKIP_B;
+        }
     }else{
-        if(nTimeStamp > sCur.nTimestamp + DROP_B_THRESHOLD)
-            s_ctl_ip.e_frm_skip_mode = IVD_SKIP_NONE;
-        else
-            s_ctl_ip.e_frm_skip_mode = IVD_SKIP_B;
+        s_ctl_ip.e_frm_skip_mode = IVD_SKIP_PB;
     }
-    LOG_LOG("ProcessQOS ts=%lld,curr=%lld,mode=%x",nTimeStamp,sCur.nTimestamp,s_ctl_ip.e_frm_skip_mode);
+
+    LOG_LOG("ProcessQOS ts=%lld,curr=%lld,mode=%x",nTimeStamp,media_ts,s_ctl_ip.e_frm_skip_mode);
     if(skipMode != s_ctl_ip.e_frm_skip_mode){
-        printf("change skip mode from 0x%x to 0x%x.",skipMode,s_ctl_ip.e_frm_skip_mode);
+        LOG_DEBUG("change skip mode from 0x%x to 0x%x.",skipMode,s_ctl_ip.e_frm_skip_mode);
         skipMode = s_ctl_ip.e_frm_skip_mode;
 
         s_ctl_ip.u4_disp_wd = (UWORD32)nWidth;
@@ -878,7 +957,9 @@ FilterBufRetCode SoftHevcDec::DecodeOneFrame()
         ProcessQOS();
         status = ivdec_api_function(mCodecCtx, (void *)&s_dec_ip, (void *)&s_dec_op);
         gettimeofday (&tv1, NULL);
-        LOG_DEBUG("*** Decode Time: %d\n", (tv1.tv_sec-tv.tv_sec)*1000+(tv1.tv_usec-tv.tv_usec)/1000);
+        LOG_LOG("*** Decode Time: %d\n", (tv1.tv_sec-tv.tv_sec)*1000+(tv1.tv_usec-tv.tv_usec)/1000);
+        LOG_LOG("status=%d,s_dec_op.u4_error_code=%d",status,s_dec_op.u4_error_code);
+        LOG_LOG("output=%d,w=%d,h=%d,flag=%d",s_dec_op.u4_output_present,s_dec_op.u4_pic_wd,s_dec_op.u4_pic_ht,s_dec_op.u4_frame_decoded_flag);
         //end the decoding process when in flush mode
         if(status != IV_SUCCESS && bInFlush){
             if(pOutBuffer == NULL) {
@@ -899,20 +980,15 @@ FilterBufRetCode SoftHevcDec::DecodeOneFrame()
             return FILTER_ERROR;
         }
 
-        if(status != IV_SUCCESS && (IHEVCD_UNSUPPORTED_DIMENSIONS != s_dec_op.u4_error_code)
-            && (0 != s_dec_op.u4_error_code)){
-            LOG_ERROR("SoftHevcDec decode 2 err =0x%x",s_dec_op.u4_error_code);
-            pInBuffer = NULL;
-            nInputSize = 0;
-            ret = (FilterBufRetCode)(FILTER_INPUT_CONSUMED | FILTER_SKIP_OUTPUT);
-            return ret;
-        }
-
-
         if ((0 < s_dec_op.u4_pic_wd) && (0 < s_dec_op.u4_pic_ht)) {
             DetectOutputFmt(s_dec_op.u4_pic_wd, s_dec_op.u4_pic_ht);
         }
 
+        if(IVD_RES_CHANGED == (s_dec_op.u4_error_code & 0xFF) && !bChangingResolution){
+            bChangingResolution = OMX_TRUE;
+            resetDecoder();
+        }
+ 
         //as changg resolution will reinit the decoder, so just return OK.
         if(bChangingResolution){
             bChangingResolution = OMX_FALSE;
@@ -927,7 +1003,7 @@ FilterBufRetCode SoftHevcDec::DecodeOneFrame()
         pInBuffer = NULL;
         nInputSize = 0;
         ret = FILTER_INPUT_CONSUMED;
-        LOG_LOG("status=%d,s_dec_op.u4_error_code=%d",status,s_dec_op.u4_error_code);
+
         //skip a frame when enable drop B or drop PB
         if(skipMode != IVD_SKIP_NONE && !s_dec_op.u4_output_present){
             ret = (FilterBufRetCode) (ret | FILTER_SKIP_OUTPUT);
@@ -960,12 +1036,19 @@ OMX_ERRORTYPE SoftHevcDec::DetectOutputFmt(OMX_U32 width, OMX_U32 height)
 
         nOutBufferCnt = 8;
         sOutFmt.nFrameWidth = ALIGN_STRIDE(width);
-        sOutFmt.nFrameHeight = height;
+        sOutFmt.nFrameHeight = ALIGN_STRIDE(height);
 
+        if((OMX_S32)sOutFmt.nFrameWidth < nFrameWidthStride || (OMX_S32)sOutFmt.nFrameHeight < nFrameHeightStride){
+            sOutFmt.nFrameWidth = ALIGN_STRIDE(nFrameWidthStride);
+            sOutFmt.nFrameHeight = ALIGN_STRIDE(nFrameHeightStride);
+        }
+
+        sOutFmt.nStride = sOutFmt.nFrameWidth;
+        sOutFmt.nSliceHeight = sOutFmt.nFrameHeight;
         nOutBufferSize = sOutFmt.nFrameWidth * sOutFmt.nFrameHeight * pxlfmt2bpp(sOutFmt.eColorFormat) / 8;
 
-        nWidth = width;
-        nHeight = height;
+        nWidth = sOutFmt.nFrameWidth;
+        nHeight = sOutFmt.nFrameHeight;
         LOG_DEBUG("DetectOutputFmt w,h=%d,%d,sOutFmt=%d,%d",
             sOutCrop.nWidth,sOutCrop.nHeight,sOutFmt.nFrameWidth,sOutFmt.nFrameHeight);
 
@@ -984,8 +1067,8 @@ OMX_ERRORTYPE SoftHevcDec::GetOutputBuffer(OMX_PTR *ppBuffer,OMX_S32* pOutSize)
     OMX_U32 i;
 
     OMX_U8* y = (OMX_U8*)pOutBuffer;
-    OMX_U8* u = (OMX_U8*)ALIGN_STRIDE((OMX_U32)pOutBuffer+Ysize);
-    OMX_U8* v = (OMX_U8*)ALIGN_STRIDE((OMX_U32)u+Usize);
+    OMX_U8* u = (OMX_U8*)ALIGN_STRIDE((unsigned long)pOutBuffer+Ysize);
+    OMX_U8* v = (OMX_U8*)ALIGN_STRIDE((unsigned long)u+Usize);
     OMX_U8* ysrc = (OMX_U8*)pInternalBuffer;
     OMX_U8* usrc = (OMX_U8*)pInternalBuffer + nWidth*nHeight;
     OMX_U8* vsrc = usrc+ nWidth*nHeight/4;
@@ -1098,7 +1181,33 @@ OMX_ERRORTYPE SoftHevcDec::FlushOutputBuffer()
     pOutBuffer = NULL;
     return OMX_ErrorNone;
 }
+OMX_ERRORTYPE SoftHevcDec::SetCropInfo(OMX_CONFIG_RECTTYPE *sCrop)
+{
+    if(sCrop == NULL || sCrop->nPortIndex != OUT_PORT)
+        return OMX_ErrorBadParameter;
 
+    sOutCrop.nTop = sCrop->nTop;
+    sOutCrop.nLeft = sCrop->nLeft;
+    sOutCrop.nWidth = sCrop->nWidth;
+    sOutCrop.nHeight = sCrop->nHeight;
+    LOG_DEBUG("SetCropInfo w=%d,h=%d",sCrop->nWidth,sCrop->nHeight);
+    return OMX_ErrorNone;
+}
+OMX_ERRORTYPE SoftHevcDec::GetCropInfo(OMX_CONFIG_RECTTYPE *sCrop)
+{
+    if(sCrop == NULL)
+        return OMX_ErrorBadParameter;
+
+    if(sCrop->nPortIndex != OUT_PORT)
+        return OMX_ErrorUnsupportedIndex;
+
+    sCrop->nLeft = sOutCrop.nLeft;
+    sCrop->nTop = sOutCrop.nTop;
+    sCrop->nWidth = sOutCrop.nWidth;
+    sCrop->nHeight = sOutCrop.nHeight;
+    LOG_DEBUG("GetCropInfo w=%d,h=%d",sCrop->nWidth,sCrop->nHeight);
+    return OMX_ErrorNone;
+}
 /**< C style functions to expose entry point for the shared library */
 extern "C" {
     OMX_ERRORTYPE SoftHevcDecoderInit(OMX_IN OMX_HANDLETYPE pHandle)

@@ -9,7 +9,7 @@ include $(CLEAR_VARS)
 LOCAL_SRC_FILES := vpu_wrapper.c
 ## endif
 
-LOCAL_CFLAGS += $(FSL_OMX_CFLAGS)
+LOCAL_CFLAGS += $(FSL_OMX_CFLAGS) -Wno-error=date-time
 
 LOCAL_LDFLAGS += $(FSL_OMX_LDFLAGS)
 

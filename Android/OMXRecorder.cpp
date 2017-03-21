@@ -409,76 +409,58 @@ status_t OMXRecorder::setOutputFile(
     return NO_ERROR;
 }
 
-// Attempt to parse an int64 literal optionally surrounded by whitespace,
-// returns true on success, false otherwise.
-static bool safe_strtoi64(const char *s, int64_t *val) {
+static bool safe_strtoi64(const char *str, int64_t *value) {
     char *end;
-    *val = strtoll(s, &end, 10);
+    *value = strtoll(str, &end, 10);
 
-    if (end == s || errno == ERANGE) {
+    if (errno == ERANGE || end == str )
         return false;
-    }
 
-    // Skip trailing whitespace
-    while (isspace(*end)) {
+    while (isspace(*end))
         ++end;
-    }
 
-    // For a successful return, the string must contain nothing but a valid
-    // int64 literal optionally surrounded by whitespace.
 
-    return *end == '\0';
+    return '\0' == *end;
 }
-static bool safe_strtof(const char *s, float *val) {
+static bool safe_strtof(const char *str, float *value) {
     char *end;
 
-    // It is lame, but according to man page, we have to set errno to 0
-    // before calling strtof().
     errno = 0;
-    *val = strtof(s, &end);
+    *value = strtof(str, &end);
 
-    if (end == s || errno == ERANGE) {
+    if (errno == ERANGE || end == str)
         return false;
-    }
 
-    // Skip trailing whitespace
-    while (isspace(*end)) {
+    while (isspace(*end))
         ++end;
-    }
 
-    // For a successful return, the string must contain nothing but a valid
-    // float literal optionally surrounded by whitespace.
-
-    return *end == '\0';
+    return '\0' == *end;
 }
-// Return true if the value is in [0, 0x007FFFFFFF]
-static bool safe_strtoi32(const char *s, int32_t *val) {
-    int64_t temp;
-    if (safe_strtoi64(s, &temp)) {
-        if (temp >= 0 && temp <= 0x007FFFFFFF) {
-            *val = static_cast<int32_t>(temp);
-            return true;
+
+static bool safe_strtoi32(const char *str, int32_t *value) {
+    int64_t tmp;
+    bool result = false;
+    if (safe_strtoi64(str, &tmp)) {
+        if (tmp <= 0x007FFFFFFF && tmp >= 0) {
+            *value = static_cast<int32_t>(tmp);
+            result = true;
         }
     }
-    return false;
+    return result;
 }
 
-// Trim both leading and trailing whitespace from the given string.
-static void TrimString(String8 *s) {
-    size_t num_bytes = s->bytes();
-    const char *data = s->string();
+static void trimSpace(String8 *str) {
+    const char *data = str->string();
+    size_t start = 0;
+    size_t end = str->bytes();
 
-    size_t leading_space = 0;
-    while (leading_space < num_bytes && isspace(data[leading_space])) {
-        ++leading_space;
-    }
+    while (start < str->bytes() && isspace(data[start]))
+        ++start;
 
-    size_t i = num_bytes;
-    while (i > leading_space && isspace(data[i - 1])) {
-        --i;
-    }
+    while (end > start && isspace(data[end - 1]))
+        --end;
 
-    s->setTo(String8(&data[leading_space], i - leading_space));
+    str->setTo(String8(&data[start], end - start));
 }
 
 status_t OMXRecorder::setParameter(
@@ -653,37 +635,38 @@ status_t OMXRecorder::setParameter(
     return BAD_VALUE;
 }
 
-status_t OMXRecorder::setParameters(const String8 &params) {
-    LOG_LOG("setParameters: %s", params.string());
-    const char *cparams = params.string();
-    const char *key_start = cparams;
-    for (;;) {
-        const char *equal_pos = strchr(key_start, '=');
+status_t OMXRecorder::setParameters(const String8 &para) {
+    LOG_LOG("setParameters: %s", para.string());
+    const char *cpara = para.string();
+    const char *start = cpara;
+    while(true) {
+        const char *equal_pos = strchr(start, '=');
         if (equal_pos == NULL) {
-            LOG_ERROR("Parameters %s miss a value", cparams);
-            return BAD_VALUE;
+            LOG_ERROR("Parameters [%s] miss value!", cpara);
+            return android::BAD_VALUE;
         }
-        String8 key(key_start, equal_pos - key_start);
-        TrimString(&key);
-        if (key.length() == 0) {
-            LOG_ERROR("Parameters %s contains an empty key", cparams);
-            return BAD_VALUE;
+        String8 key(start, equal_pos - start);
+
+        trimSpace(&key);
+        if (0 == key.length()) {
+            LOG_ERROR("Parameters [%s] contains empty key!", cpara);
+            return android::BAD_VALUE;
         }
         const char *value_start = equal_pos + 1;
-        const char *semicolon_pos = strchr(value_start, ';');
-        String8 value;
-        if (semicolon_pos == NULL) {
-            value.setTo(value_start);
-        } else {
-            value.setTo(value_start, semicolon_pos - value_start);
-        }
-        if (setParameter(key, value) != NO_ERROR) {
-            return BAD_VALUE;
-        }
-        if (semicolon_pos == NULL) {
+        const char *semicolon = strchr(value_start, ';');
+        String8 val;
+        if (semicolon != NULL)
+            val.setTo(value_start, semicolon - value_start);
+        else
+            val.setTo(value_start);
+
+        if (setParameter(key, val) != NO_ERROR)
+            return android::BAD_VALUE;
+
+        if (NULL == semicolon )
             break;  // Reaches the end
-        }
-        key_start = semicolon_pos + 1;
+
+        start = semicolon + 1;
     }
     return NO_ERROR;
 }

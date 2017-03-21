@@ -193,7 +193,7 @@ static int mov_read_udta_string(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     if (atom.size < 0)
         return -1;
 
-    str_size = FFMIN3(sizeof(str)-1, str_size, atom.size);
+    str_size = FFMIN3((uint16_t)sizeof(str)-1, str_size, atom.size);
 
     if (parse)
         parse(c, pb, str_size);

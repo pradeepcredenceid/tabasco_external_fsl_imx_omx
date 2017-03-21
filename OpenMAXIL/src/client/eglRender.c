@@ -85,9 +85,6 @@ int CloseWindow(RenderContext * renderContext)
     return 0;
 }
 
-//
-//    Log an error message to the debug output for the platform
-//
 void LogMessage ( const char *formatStr, ... )
 {
     va_list params;
@@ -227,7 +224,6 @@ int eglOpen(RenderContext * renderContext)
 
 void eglClose(RenderContext * renderContext)
 {
-    /* Destroy all EGL resources */
     eglMakeCurrent(renderContext->eglDisplay, NULL, NULL, NULL);
     eglDestroyContext(renderContext->eglDisplay, renderContext->eglContext);
     eglDestroySurface(renderContext->eglDisplay, renderContext->eglWindowSurface);
@@ -263,24 +259,20 @@ int RoundUpPower2( int in_num)
     return out_num;
 }
 
-GLuint LoadShader ( GLenum type, const char *shaderSrc )
+GLuint createShader ( const char *shaderSrc, GLenum type )
 {
     GLuint shader;
     GLint compiled;
 
-    // Create the shader object
     shader = glCreateShader ( type );
 
     if ( shader == 0 )
         return 0;
 
-    // Load the shader source
     glShaderSource ( shader, 1, &shaderSrc, NULL );
 
-    // Compile the shader
     glCompileShader ( shader );
 
-    // Check the compile status
     glGetShaderiv ( shader, GL_COMPILE_STATUS, &compiled );
 
     if ( !compiled )
@@ -294,7 +286,7 @@ GLuint LoadShader ( GLenum type, const char *shaderSrc )
             char* infoLog = malloc (sizeof(char) * infoLen );
 
             glGetShaderInfoLog ( shader, infoLen, NULL, infoLog );
-            LogMessage ( "Error compiling shader:\n%s\n", infoLog );
+            LogMessage ( "compiling shader info :\n%s\n", infoLog );
 
             free ( infoLog );
         }
@@ -309,23 +301,18 @@ GLuint LoadShader ( GLenum type, const char *shaderSrc )
 
 void * CreateEGLImage(RenderContext * renderContext)
 {
-    // Texture object handle
     GLuint textureId;
     EGLImageKHR eglImage;
 
     renderContext->Texwidth = RoundUpPower2(renderContext->width);
     renderContext->Texheight = RoundUpPower2(renderContext->height);
 
-    // Use tightly packed data
     glPixelStorei ( GL_UNPACK_ALIGNMENT, 1 );
 
-    // Generate a texture object
     glGenTextures ( 1, &textureId );
 
-    // Bind the texture object
     glBindTexture ( GL_TEXTURE_2D, textureId );
 
-    // Set the filtering mode
     glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST );
     glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST );
 
@@ -361,9 +348,6 @@ void * CreateEGLImage(RenderContext * renderContext)
     return renderContext->eglImage[nIdx] ;
 }
 
-///
-// Initialize the shader and program object
-//
 int Init ( RenderContext *renderContext )
 {
     GLuint vsShader = 0, fsShader = 0;
@@ -390,9 +374,8 @@ int Init ( RenderContext *renderContext )
         "}                                                   \n";
 
 
-    // Load the shaders and get a linked program object
-    vsShader = LoadShader(GL_VERTEX_SHADER,vShaderStr);
-    fsShader = LoadShader(GL_FRAGMENT_SHADER,fShaderStr);
+    vsShader = createShader(vShaderStr, GL_VERTEX_SHADER);
+    fsShader = createShader(fShaderStr, GL_FRAGMENT_SHADER);
     program = glCreateProgram();
     if (program == 0)
     {
@@ -403,7 +386,6 @@ int Init ( RenderContext *renderContext )
     glAttachShader(program, fsShader);
     glLinkProgram(program);
 
-    // Check the link status
     glGetProgramiv ( program, GL_LINK_STATUS, &linked );
 
     if ( !linked )
@@ -426,19 +408,16 @@ int Init ( RenderContext *renderContext )
         return 0;
     }
 
-    // Free up no longer needed shader resources
     glDeleteShader ( vsShader );
     glDeleteShader ( fsShader );
 
     renderContext->programObject = program ;
-    // Get the attribute locations
+
     renderContext->positionLoc = glGetAttribLocation ( program, "a_position" );
     renderContext->texCoordLoc = glGetAttribLocation ( program, "a_texCoord" );
 
-    // Get the sampler location
     renderContext->samplerLoc = glGetUniformLocation ( program, "s_texture" );
 
-    // Load the texture
     //renderContext->textureId[textureIndex] = CreateTexture2D (renderContext);
 
     glClearColor ( 0.0f, 0.0f, 0.0f, 0.0f );
@@ -469,9 +448,7 @@ int find_texture_from_eglimage(void * renderContext, EGLImageKHR eglImage)
     }
     return 0;
 }
-///
-// Draw a triangle using the shader pair created in Init()
-//
+
 void Draw ( RenderContext *renderContext, EGLImageKHR eglImage )
 {
 
@@ -488,26 +465,22 @@ void Draw ( RenderContext *renderContext, EGLImageKHR eglImage )
     GLushort indices[] = { 0, 1, 2, 0, 2, 3 };
     vVertices[9] = vVertices[14] = (GLfloat)renderContext->height /renderContext->Texheight;
     vVertices[13] = vVertices[18] = (GLfloat)renderContext->width /renderContext->Texwidth;
-    // Set the viewport
+
     glViewport ( 0, 0, renderContext->width, renderContext->height );
 
-    // Clear the color buffer
     glClear ( GL_COLOR_BUFFER_BIT );
 
-    // Use the program object
     glUseProgram ( renderContext->programObject );
 
-    // Load the vertex position
     glVertexAttribPointer ( renderContext->positionLoc, 3, GL_FLOAT,
             GL_FALSE, 5 * sizeof(GLfloat), vVertices );
-    // Load the texture coordinate
+
     glVertexAttribPointer ( renderContext->texCoordLoc, 2, GL_FLOAT,
             GL_FALSE, 5 * sizeof(GLfloat), &vVertices[3] );
 
     glEnableVertexAttribArray ( renderContext->positionLoc );
     glEnableVertexAttribArray ( renderContext->texCoordLoc );
 
-    // Bind the texture
     glActiveTexture ( GL_TEXTURE0 );
     find_texture_from_eglimage(renderContext,eglImage);
     glBindTexture ( GL_TEXTURE_2D, renderContext->textureId[renderContext->CurrentTexIndex] );

@@ -56,6 +56,11 @@ class AudioFilter : public ComponentBase {
         OMX_AUDIO_PARAM_PCMMODETYPE PcmMode; /**< For output port */
         OMX_DECODE_MODE ePlayMode;
         OMX_U32 nRequiredSize;//set by subclass for audio ring buffer len
+        OMX_BOOL bStartTime;
+        OMX_U32  nOutputBitPerSample;
+        OMX_BOOL bSendFirstPortSettingChanged;
+        OMX_BOOL bConvertEnable;
+
     private:
         OMX_ERRORTYPE InstanceInit();
         OMX_ERRORTYPE InstanceDeInit();
@@ -77,11 +82,18 @@ class AudioFilter : public ComponentBase {
 		OMX_ERRORTYPE ProcessInputDataBuffer();
 		OMX_ERRORTYPE ProcessOutputDataBuffer();
         virtual OMX_ERRORTYPE ComponentReturnBuffer(OMX_U32 nPortIndex);
+        virtual OMX_ERRORTYPE  SetRoleFormat(OMX_STRING role);
+        virtual OMX_ERRORTYPE AudioFilterHandleBOS();
+        virtual OMX_ERRORTYPE AudioFilterHandleEOS();
         OMX_ERRORTYPE FlushComponent(OMX_U32 nPortIndex);
+        OMX_ERRORTYPE ConvertData(OMX_U8* pOut, OMX_U32 *nOutSize, OMX_U8 *pIn, OMX_U32 nInSize);
 		OMX_AUDIO_PARAM_PORTFORMATTYPE PortFormat[AUDIO_FILTER_PORT_NUMBER];
 		OMX_BOOL bFirstFrame;
 		OMX_BOOL bCodecInit;
 		OMX_BOOL bDecoderInitFail;
+		OMX_U8 * pConvertBuffer;
+        OMX_BOOL bFirstOutput;
+
 };
 
 #endif

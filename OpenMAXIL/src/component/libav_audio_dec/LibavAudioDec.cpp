@@ -99,6 +99,7 @@ LibavAudioDec::LibavAudioDec()
     codecContext = NULL;
     frame = NULL;
     avr = NULL;
+    errorCnt = 0;
 }
 
 OMX_ERRORTYPE LibavAudioDec::InitComponent()
@@ -116,7 +117,7 @@ OMX_ERRORTYPE LibavAudioDec::InitComponent()
     sPortDef.bEnabled = OMX_TRUE;
     sPortDef.nBufferCountMin = 1;
     sPortDef.nBufferCountActual = 3;
-    sPortDef.nBufferSize = 1024;
+    sPortDef.nBufferSize = 32768;
     ret = ports[AUDIO_FILTER_INPUT_PORT]->SetPortDefinition(&sPortDef);
     if(ret != OMX_ErrorNone) {
         LOG_ERROR("Set port definition for port[%d] failed.\n", AUDIO_FILTER_INPUT_PORT);
@@ -260,6 +261,8 @@ OMX_ERRORTYPE LibavAudioDec::AudioFilterInstanceDeInit()
         av_free(avr);
         avr = NULL;
     }
+
+    errorCnt = 0;
     return ret;
 }
 
@@ -327,21 +330,25 @@ OMX_ERRORTYPE  LibavAudioDec::SetRoleFormat(OMX_STRING role)
     if(fsl_osal_strcmp(role, "audio_decoder.adpcm") == 0) {
         CodingType = OMX_AUDIO_CodingADPCM;
         fsl_osal_strcpy((fsl_osal_char*)name, LIBAV_COMP_NAME_ADPCMDEC);
+        OMX_INIT_STRUCT(&(InputMode.PcmMode), OMX_AUDIO_PARAM_PCMMODETYPE);
     }
 	else if(fsl_osal_strcmp(role, "audio_decoder.g711") == 0) {
         CodingType = OMX_AUDIO_CodingG711;
         fsl_osal_strcpy((fsl_osal_char*)name, LIBAV_COMP_NAME_G711DEC);
+        OMX_INIT_STRUCT(&(InputMode.AdpcmMode), OMX_AUDIO_PARAM_ADPCMMODETYPE)
     }
     else if(fsl_osal_strcmp(role, "audio_decoder.opus") == 0)
     {
         CodingType = (OMX_AUDIO_CODINGTYPE)OMX_AUDIO_CodingOPUS;
         fsl_osal_strcpy((fsl_osal_char*)name, LIBAV_COMP_NAME_OPUSDEC);
+        OMX_INIT_STRUCT(&(InputMode.OpusMode), OMX_AUDIO_PARAM_OPUSTYPE)
     }
     else if(fsl_osal_strcmp(role, "audio_decoder.ape") == 0)
     {
         CodingType = (OMX_AUDIO_CODINGTYPE)OMX_AUDIO_CodingAPE;
         fsl_osal_strcpy((fsl_osal_char*)name, LIBAV_COMP_NAME_APEDEC);
         nPushModeInputLen = LIBAV_APE_AUDIO_PUSH_MODE_LEN;
+        OMX_INIT_STRUCT(&(InputMode.ApeMode), OMX_AUDIO_PARAM_APETYPE)
     }
 	else {
         CodingType = OMX_AUDIO_CodingUnused;
@@ -451,7 +458,6 @@ OMX_ERRORTYPE LibavAudioDec::AudioFilterSetParameterPCM()
 	PcmMode.eEndian = OMX_EndianLittle;
 	PcmMode.eChannelMapping[0] = OMX_AUDIO_ChannelNone;
 
-    nPushModeInputLen = 4096;
     return ret;
 }
 
@@ -522,8 +528,12 @@ AUDIO_FILTERRETURNTYPE LibavAudioDec::AudioFilterFrame()
     }else if (OMX_AUDIO_CodingOPUS == CodingType || OMX_AUDIO_CodingAPE == CodingType){
         //opus & ape decoder only can decode a packet each time, and it needs to know the packet size, aka, the nFrameLen.
         nFrameLen = TS_Manager.GetFrameLen();
-        if (0 == nFrameLen)
-            nFrameLen = nActuralLen;
+        if (0 == nFrameLen) {
+            if(errorCnt++ > 1000)
+                return AUDIO_FILTER_FATAL_ERROR; // keep from dead loop
+            TS_Manager.Consumered(0);
+            return ret;
+        }
         else if (nFrameLen != nActuralLen) {
             AudioRingBuffer.BufferGet(&pBuffer, nFrameLen, &nActuralLen);
         }
@@ -570,6 +580,7 @@ AUDIO_FILTERRETURNTYPE LibavAudioDec::AudioFilterFrame()
     TS_Manager.Consumered(nConsumeLen);
     pOutBufferHdr->nOffset = 0;
     TS_Manager.TS_SetIncrease(TS_PerFrame);
+    errorCnt = 0;
 
     return ret;
 }
@@ -603,6 +614,7 @@ OMX_ERRORTYPE LibavAudioDec::AudioFilterCheckCodecConfig()
         case OMX_AUDIO_CodingAPE:
             fsl_osal_memcpy(codecData, pInBufferHdr->pBuffer, pInBufferHdr->nFilledLen);
             codecDataSize = pInBufferHdr->nFilledLen;
+            pInBufferHdr->nFilledLen = 0;
             break;
         default:
             break;

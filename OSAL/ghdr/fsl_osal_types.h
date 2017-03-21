@@ -35,10 +35,10 @@ typedef unsigned short fsl_osal_u16;
 typedef signed short fsl_osal_s16;
 
 /*! fsl_osal_u32 is 32 bit unsigned data type */
-typedef unsigned long fsl_osal_u32;
+typedef unsigned int fsl_osal_u32;
 
 /*! fsl_osal_s32 is 32 bit signed data type */
-typedef signed long fsl_osal_s32;
+typedef signed int fsl_osal_s32;
 
 /*! fsl_osal_u64 is 64 bit unsigned data type */
 typedef unsigned long long fsl_osal_u64;

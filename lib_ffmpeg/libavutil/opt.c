@@ -24,7 +24,7 @@
  * AVOptions
  * @author Michael Niedermayer <michaelni@gmx.at>
  */
-
+#include <math.h>
 #include "avutil.h"
 #include "avstring.h"
 #include "opt.h"

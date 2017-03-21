@@ -27,46 +27,17 @@ extern "C" {
 #include <stdio.h>
 #include "fsl_osal.h"
 
-
-
-/**
- * LogLevel:
- * @LOG_LEVEL_NONE: No debugging level specified or desired. Used to deactivate
- *  debugging output.
- * @LOG_LEVEL_ERROR: Error messages are to be used only when an error occured
- *  that stops the application from keeping working correctly.
- * @LOG_LEVEL_WARNING: Warning messages are to inform about abnormal behaviour
- *  that could lead to problems or weird behaviour later on.
- * @LOG_LEVEL_INFO: Informational messages should be used to keep the developer
- *  updated about what is happening.
- *  Examples where this should be used are when a typefind function has
- *  successfully determined the type of the stream or when an mp3 plugin detects
- *  the format to be used. ("This file has mono sound.")
- * @LOG_LEVEL_DEBUG: Debugging messages should be used when something common
- *  happens that is not the expected default behavior.
- *  An example would be notifications about state changes or receiving/sending of
- *  events.
- * @LOG_LEVEL_BUFFER: Debugging messages should be used to trace the buffer
- *  transport between component.
- * @LOG_LEVEL_LOG: Log messages are messages that are very common but might be
- *  useful to know. As a rule of thumb a pipeline that is iterating as expected
- *  should never output anzthing else but LOG messages.
- * @LOG_LEVEL_COUNT: The number of defined debugging levels.
- *
- * The level defines the importance of a debugging message. The more important a
- * message is, the greater the probability that the debugging system outputs it.
- */
 typedef enum {
-  LOG_LEVEL_NONE = 0,
-  LOG_LEVEL_ERROR,
-  LOG_LEVEL_WARNING,
-  LOG_LEVEL_INFO,
-  LOG_LEVEL_APIINFO,
-  LOG_LEVEL_DEBUG,
-  LOG_LEVEL_BUFFER,
-  LOG_LEVEL_LOG,
+  LOG_LEVEL_NONE = 0, //disable debugging log output
+  LOG_LEVEL_ERROR, // an error occurs that makes application stop working
+  LOG_LEVEL_WARNING, // abnormal behaviour that is possible to result in problem later
+  LOG_LEVEL_INFO, // inform developer what's happening
+  LOG_LEVEL_APIINFO, // calling of APIs
+  LOG_LEVEL_DEBUG, // common but not the default behavior
+  LOG_LEVEL_BUFFER, // trace buffers between compoments
+  LOG_LEVEL_LOG, // common and useful information
   /* add more */
-  LOG_LEVEL_COUNT
+  LOG_LEVEL_COUNT // total level count
 } LogLevel;
 
 extern fsl_osal_s32 nLogLevel;

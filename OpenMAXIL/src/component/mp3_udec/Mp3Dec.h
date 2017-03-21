@@ -28,7 +28,11 @@ class Mp3Dec : public UniaDecoder{
         OMX_ERRORTYPE UniaDecoderGetParameter(UA_ParaType index,OMX_S32 * value);
         OMX_ERRORTYPE AudioFilterCheckFrameHeader();
         OMX_ERRORTYPE UniaDecoderParseFrame(OMX_U8* pBuffer,OMX_U32 len,UniaDecFrameInfo *info);
+        OMX_ERRORTYPE AudioFilterHandleBOS();
+        OMX_ERRORTYPE AudioFilterHandleEOS();
         OMX_AUDIO_PARAM_MP3TYPE Mp3Type;
+        OMX_U32 handleEOSState;
+        OMX_U32 delayLeft;
 };
 
 #endif

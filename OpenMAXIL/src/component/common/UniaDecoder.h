@@ -83,5 +83,7 @@ class UniaDecoder : public AudioFilter {
         CHAN_TABLE channelTable;
         OMX_U32 inputFrameCount;
         OMX_U32 consumeFrameCount;
+        OMX_BOOL bSendEvent;
+
 };
 #endif

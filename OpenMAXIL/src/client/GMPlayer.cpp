@@ -2854,6 +2854,7 @@ OMX_ERRORTYPE GMPlayer::SetupVideoPipeline()
     else {
         IsDecoderSupportNV12Fmt = OMX_TRUE;
         buffer_usage = BUFFER_SW_READ_NEVER | BUFFER_SW_WRITE_NEVER | BUFFER_PHY_CONTINIOUS;
+        VideoDecoder->SetPortBufferNumberType(1, GM_CUMULATE);
 #ifdef MX5X
         if (VideoFmt == OMX_VIDEO_CodingMJPEG)
             IsDecoderSupportNV12Fmt = OMX_FALSE;

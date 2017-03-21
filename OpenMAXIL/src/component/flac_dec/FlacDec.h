@@ -36,8 +36,10 @@ class FlacDec : public AudioFilter {
 		OMX_ERRORTYPE AudioFilterReset();
 		OMX_ERRORTYPE AudioFilterCheckCodecConfig();
 		OMX_AUDIO_PARAM_FLACTYPE FlacType;
+        OMX_AUDIO_PARAM_PCMMODETYPE LastOutputType;
 		FLACD_Decode_Config *pFlacDecConfig;
 		OMX_U8 *pOutBuffer;
+        OMX_U32 errorCount;
 };
 
 #endif

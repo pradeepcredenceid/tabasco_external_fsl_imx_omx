@@ -8,10 +8,13 @@
  */
 
 #include "UniaDecoder.h"
-//#undef LOG_DEBUG
-//#define LOG_DEBUG printf
-//#undef LOG_LOG
-//#define LOG_LOG printf
+
+#if 0
+#undef LOG_DEBUG
+#define LOG_DEBUG printf
+#undef LOG_LOG
+#define LOG_LOG printf
+#endif
 #define MAX_PROFILE_ERROR_COUNT 1500 //about 1 second decoding time, 30 seconds' audio data length
 /*****************************************************************************
  * Function:    appLocalMalloc
@@ -111,7 +114,9 @@ UniaDecoder::UniaDecoder()
     //optional value
     frameInput = OMX_FALSE;
     optionaDecoderlLibName = NULL;
+
     LOG_DEBUG("UniaDecoder::UniaDecoder");
+
 }
 OMX_ERRORTYPE UniaDecoder::InitComponent()
 {
@@ -128,7 +133,7 @@ OMX_ERRORTYPE UniaDecoder::InitComponent()
     inputFrameCount = 0;
     consumeFrameCount= 0;
     profileErrorCount = 0;
-
+    bSendEvent = OMX_FALSE;
     IDecoder = NULL;
     libMgr = NULL;
     hLib = NULL;
@@ -144,7 +149,6 @@ OMX_ERRORTYPE UniaDecoder::InitComponent()
     if(ret != OMX_ErrorNone){
         return ret;
     }
-
 
     libMgr = FSL_NEW(ShareLibarayMgr, ());
 
@@ -176,7 +180,7 @@ OMX_ERRORTYPE UniaDecoder::InitPort()
         sPortDef.bEnabled = OMX_TRUE;
         sPortDef.nBufferCountMin = 1;
         sPortDef.nBufferCountActual = 3;
-        sPortDef.nBufferSize = 1024;
+        sPortDef.nBufferSize = 32768;
 
         ret = ports[AUDIO_FILTER_INPUT_PORT]->SetPortDefinition(&sPortDef);
 
@@ -409,9 +413,21 @@ OMX_ERRORTYPE UniaDecoder::ResetParameterWhenOutputChange()
             return OMX_ErrorBadParameter;
         }
 
+        if(PcmMode.nSamplingRate != outputValue.samplerate || PcmMode.nChannels != outputValue.channels){
+            bSendEvent = OMX_TRUE;
+            LOG_DEBUG("bSendEvent 1");
+        }else if(!bSendFirstPortSettingChanged){
+            bSendFirstPortSettingChanged = OMX_TRUE;
+            bSendEvent = OMX_FALSE;
+            LOG_DEBUG("do not send event");
+        }else{
+            LOG_DEBUG("bSendEvent 2");
+            bSendEvent = OMX_TRUE;
+        }
+
         PcmMode.nSamplingRate = outputValue.samplerate;
         PcmMode.nChannels = outputValue.channels;
-        PcmMode.nBitPerSample = outputValue.depth;
+        nOutputBitPerSample = PcmMode.nBitPerSample = outputValue.depth;
         PcmMode.bInterleaved = (OMX_BOOL)outputValue.interleave;
 
         #ifndef OMX_STEREO_OUTPUT
@@ -443,7 +459,8 @@ OMX_ERRORTYPE UniaDecoder::ResetParameterWhenOutputChange()
 
     value = 0;
     if(ACODEC_SUCCESS == IDecoder->GetParameter(uniaHandle,UNIA_DEPTH,(UniACodecParameter*)&value)){
-        UniaDecoderSetParameter(UNIA_DEPTH,value);
+        if(value > 0)
+            UniaDecoderSetParameter(UNIA_DEPTH,value);
     }
     LOG_DEBUG("ResetParameterWhenOutputChange nSamplingRate=%d,nChannels=%d",PcmMode.nSamplingRate,PcmMode.nChannels);
 
@@ -545,7 +562,7 @@ AUDIO_FILTERRETURNTYPE UniaDecoder::AudioFilterFrame()
         OMX_U32 nFrameLen;
         nFrameLen = TS_Manager.GetFrameLen();
         if (nFrameLen == 0)
-            nFrameLen = nActuralLen;
+            nFrameLen = nPushModeInputLen;
 
         AudioRingBuffer.BufferGet(&pBuffer, nFrameLen, &InputLen);
     }
@@ -564,19 +581,22 @@ AUDIO_FILTERRETURNTYPE UniaDecoder::AudioFilterFrame()
     LOG_LOG("decoderRet=%d,InputLen=%d,InputOffset=%d,nActuralLen=%d",decoderRet,InputLen,InputOffset,nActuralLen);
     if(decoderRet == ACODEC_SUCCESS || decoderRet == ACODEC_CAPIBILITY_CHANGE){
 
-        if(decoderRet & ACODEC_CAPIBILITY_CHANGE && OMX_ErrorNone == ResetParameterWhenOutputChange()){
+        if((decoderRet & ACODEC_CAPIBILITY_CHANGE) && OMX_ErrorNone == ResetParameterWhenOutputChange()){
             if(nActuralLen != 0){
                 TS_PerFrame = (OMX_S64)nActuralLen*8*OMX_TICKS_PER_SECOND/PcmMode.nChannels \
-                    /PcmMode.nSamplingRate/PcmMode.nBitPerSample;
+                    /PcmMode.nSamplingRate/nOutputBitPerSample;//PcmMode.nBitPerSample;
             }
-            LOG_DEBUG("send output port changed event");
-            SendEvent(OMX_EventPortSettingsChanged, AUDIO_FILTER_OUTPUT_PORT, 0, NULL);
+
+            if(bSendEvent){
+                LOG_DEBUG("send output port changed event");
+                SendEvent(OMX_EventPortSettingsChanged, AUDIO_FILTER_OUTPUT_PORT, 0, NULL);
+            }
         }
         pOutBufferHdr->nOffset = 0;
         pOutBufferHdr->nFilledLen = nActuralLen;
 
         TS_PerFrame = (OMX_S64)pOutBufferHdr->nFilledLen*8*OMX_TICKS_PER_SECOND/PcmMode.nChannels \
-                /PcmMode.nSamplingRate/PcmMode.nBitPerSample;
+                /PcmMode.nSamplingRate/nOutputBitPerSample;//PcmMode.nBitPerSample;
 
         IDecoder->GetParameter(uniaHandle,UNIA_CONSUMED_LENGTH,(UniACodecParameter*)&consumeLen);
 
@@ -671,6 +691,7 @@ AUDIO_FILTERRETURNTYPE UniaDecoder::AudioFilterFrame()
         profileErrorCount = 0;
         LOG_DEBUG("return AUDIO_FILTER_FATAL_ERROR instead of ACODEC_PROFILE_NOT_SUPPORT");
     }
+
     return ret;
 }
 OMX_ERRORTYPE UniaDecoder::AudioFilterReset()

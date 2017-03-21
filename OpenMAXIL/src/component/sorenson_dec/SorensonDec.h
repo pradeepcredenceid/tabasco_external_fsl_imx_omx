@@ -60,6 +60,8 @@ class SorensonDec : public VideoFilter {
         OMX_U32 DecFrameHeight;
 
         OMX_ERRORTYPE GetConfig(OMX_INDEXTYPE nParamIndex, OMX_PTR pComponentParameterStructure);
+        OMX_ERRORTYPE SetCropInfo(OMX_CONFIG_RECTTYPE *sCrop);
+        OMX_ERRORTYPE GetCropInfo(OMX_CONFIG_RECTTYPE *sCrop);
 
         OMX_ERRORTYPE SetInputBuffer(OMX_PTR pBuffer, OMX_S32 nSize, OMX_BOOL bLast);
         OMX_ERRORTYPE SetOutputBuffer(OMX_PTR pBuffer);
@@ -76,6 +78,7 @@ class SorensonDec : public VideoFilter {
         OMX_ERRORTYPE FreeDecoderMemory();
         OMX_BOOL CheckResolutionChanged();
         void CopyOutputFrame(OMX_U8 *pOutputFrame);
+        OMX_ERRORTYPE SetParameter(OMX_INDEXTYPE nParamIndex, OMX_PTR pComponentParameterStructure);
 };
 
 #endif

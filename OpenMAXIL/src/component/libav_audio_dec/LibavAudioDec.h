@@ -58,6 +58,7 @@ class LibavAudioDec : public AudioFilter {
         OMX_U8 cRole[OMX_MAX_STRINGNAME_SIZE];
         OMX_U8 codecData[MAX_LIBAVAUDIO_CODEC_DATA_SIZE];
         OMX_U32 codecDataSize;
+        OMX_U32 errorCnt;
 };
 
 #endif

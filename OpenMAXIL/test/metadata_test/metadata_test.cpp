@@ -1,5 +1,5 @@
 /**
- *  Copyright (c) 2011-2012, Freescale Semiconductor Inc.,
+ *  Copyright (c) 2011-2012, 2016, Freescale Semiconductor Inc.,
  *  All Rights Reserved.
  *
  *  The following programs are the sole property of Freescale Semiconductor Inc.,
@@ -18,104 +18,72 @@
 
 #define THUMB_W 200
 #define THUMB_H 200
-
-// A simple buffer to hold binary data
-class MediaAlbumArt
+// save binary data in Frame
+class Frame
 {
 	public:
-		MediaAlbumArt(): mSize(0), mData(0) {}
+		Frame(): nSize(0), pBuffer(0) {}
 
-		explicit MediaAlbumArt(const char* url) {
-			mSize = 0;
-			mData = NULL;
-			FILE *in = fopen(url, "r");
-			if (!in) {
-				return;
-			}
-			fseek(in, 0, SEEK_END);
-			mSize = ftell(in);  // Allocating buffer of size equals to the external file size.
-			if (mSize == 0 || (mData = new OMX_U8[mSize]) == NULL) {
-				fclose(in);
-				if (mSize != 0) {
-					mSize = 0;
-				}
-				return;
-			}
-			rewind(in);
-			if (fread(mData, 1, mSize, in) != mSize) {  // Read failed.
-				delete[] mData;
-				mData = NULL;
-				mSize = 0;
-				return;
-			}
-			fclose(in);
+		Frame(const Frame& ref) {
+            if (ref.pBuffer != NULL) {
+                if (ref.nSize > 0) {
+                    pBuffer = new OMX_U8[ref.nSize];
+                    if (pBuffer) {
+                        memcpy(pBuffer, ref.pBuffer, ref.nSize);
+                        nSize = ref.nSize;
+                    }
+                    else
+                        nSize = 0;
+                }
+            }
 		}
 
-		MediaAlbumArt(const MediaAlbumArt& copy) {
-			mSize = copy.mSize;
-			mData = NULL;  // initialize it first
-			if (mSize > 0 && copy.mData != NULL) {
-				mData = new OMX_U8[copy.mSize];
-				if (mData != NULL) {
-					memcpy(mData, copy.mData, mSize);
-				} else {
-					mSize = 0;
-				}
+		~Frame() {
+			if (pBuffer) {
+				delete[] pBuffer;
+                pBuffer = NULL;
 			}
 		}
 
-		~MediaAlbumArt() {
-			if (mData != 0) {
-				delete[] mData;
-			}
-		}
-		// Intentional public access modifier:
-		// We have to know the internal structure in order to share it between
-		// processes?
-		OMX_U32 mSize;            // Number of bytes in mData
-		OMX_U8* mData;            // Actual binary data
+		OMX_U32 nSize;            // Number of bytes in pBuffer
+		OMX_U8* pBuffer;          // Actual binary data
 };
 
-// Represents a color converted (RGB-based) video frame
-// with bitmap pixels stored in FrameBuffer
-class VideoFrame
+class VideoFrame: public Frame
 {
 	public:
-		VideoFrame(): mWidth(0), mHeight(0), mDisplayWidth(0), mDisplayHeight(0), mSize(0), mData(0) {}
+		VideoFrame(): nFrameWidth(0), nFrameHeight(0), nDisplayFrameWidth(0), nDisplayFrameHeight(0){}
 
-		VideoFrame(const VideoFrame& copy) {
-			mWidth = copy.mWidth;
-			mHeight = copy.mHeight;
-			mDisplayWidth = copy.mDisplayWidth;
-			mDisplayHeight = copy.mDisplayHeight;
-			mSize = copy.mSize;
-			mData = NULL;  // initialize it first
-			if (mSize > 0 && copy.mData != NULL) {
-				mData = new OMX_U8[mSize];
-				if (mData != NULL) {
-					memcpy(mData, copy.mData, mSize);
-				} else {
-					mSize = 0;
-				}
-			}
+		VideoFrame(const VideoFrame& ref) {
+            if (ref.pBuffer != NULL) {
+                if (ref.nSize > 0) {
+                    pBuffer = new OMX_U8[ref.nSize];
+                    if (pBuffer) {
+                        memcpy(pBuffer, ref.pBuffer, ref.nSize);
+                        nSize = ref.nSize;
+                        nFrameWidth = ref.nFrameWidth;
+			            nFrameHeight = ref.nFrameHeight;
+			            nDisplayFrameWidth = ref.nDisplayFrameWidth;
+			            nDisplayFrameHeight = ref.nDisplayFrameHeight;
+                    }
+                    else {
+                        nSize = 0;
+                        nFrameWidth = 0;
+                        nFrameHeight = 0;
+                        nDisplayFrameWidth = 0;
+                        nDisplayFrameHeight = 0;
+                    }
+                }
+            }
 		}
 
-		~VideoFrame() {
-			if (mData != 0) {
-				delete[] mData;
-			}
-		}
-
-		// Intentional public access modifier:
-		OMX_U32 mWidth;
-		OMX_U32 mHeight;
-		OMX_U32 mDisplayWidth;
-		OMX_U32 mDisplayHeight;
-		OMX_U32 mSize;            // Number of bytes in mData
-		OMX_U8* mData;            // Actual binary data
+		OMX_U32 nFrameWidth;
+		OMX_U32 nFrameHeight;
+		OMX_U32 nDisplayFrameWidth;
+		OMX_U32 nDisplayFrameHeight;
 };
 
-MediaAlbumArt *mAlbumArt = NULL;
+Frame *mAlbumArt = NULL;
 
 OMX_ERRORTYPE MakeThumbnailFileNameJPG(char *media_file_name, char *thumbnail_file_name, OMX_S32 index)
 {
@@ -208,18 +176,18 @@ VideoFrame *captureFrame(OMX_MetadataExtractor* mExtractor)
     if(mVideoFrame == NULL)
         return NULL;
 
-    mVideoFrame->mWidth = THUMB_W;
-    mVideoFrame->mHeight = THUMB_H;
-    mVideoFrame->mDisplayWidth  = THUMB_W;
-    mVideoFrame->mDisplayHeight = THUMB_H;
-    mVideoFrame->mSize = mVideoFrame->mWidth * mVideoFrame->mHeight * 2;
-    mVideoFrame->mSize = mVideoFrame->mWidth * mVideoFrame->mHeight * 4;
-    mVideoFrame->mData = (OMX_U8 *)FSL_MALLOC(mVideoFrame->mSize);
-    if(mVideoFrame->mData == NULL) {
+    mVideoFrame->nFrameWidth= THUMB_W;
+    mVideoFrame->nFrameHeight= THUMB_H;
+    mVideoFrame->nDisplayFrameWidth= THUMB_W;
+    mVideoFrame->nDisplayFrameHeight = THUMB_H;
+    mVideoFrame->nSize = mVideoFrame->nFrameWidth * mVideoFrame->nFrameHeight * 2;
+    mVideoFrame->nSize = mVideoFrame->nFrameWidth * mVideoFrame->nFrameHeight * 4;
+    mVideoFrame->pBuffer= (OMX_U8 *)FSL_MALLOC(mVideoFrame->nSize);
+    if(mVideoFrame->pBuffer== NULL) {
         FSL_DELETE(mVideoFrame);
         return NULL;
     }
-    fsl_osal_memset(mVideoFrame->mData, 0, mVideoFrame->mSize);
+    fsl_osal_memset(mVideoFrame->pBuffer, 0, mVideoFrame->nSize);
 
     OMX_IMAGE_PORTDEFINITIONTYPE out_format;
     fsl_osal_memset(&out_format, 0, sizeof(OMX_IMAGE_PORTDEFINITIONTYPE));
@@ -228,9 +196,9 @@ VideoFrame *captureFrame(OMX_MetadataExtractor* mExtractor)
     out_format.eColorFormat = OMX_COLOR_Format16bitRGB565;
 	out_format.eColorFormat = OMX_COLOR_Format32bitARGB8888;
 
-    if(OMX_TRUE != mExtractor->getThumbnail(mExtractor, &out_format, (OMX_TICKS)(5*OMX_TICKS_PER_SECOND), &(mVideoFrame->mData))) {
+    if(OMX_TRUE != mExtractor->getThumbnail(mExtractor, &out_format, (OMX_TICKS)(5*OMX_TICKS_PER_SECOND), &(mVideoFrame->pBuffer))) {
         LOG_ERROR("Failed to get thumnail\n");
-		FSL_FREE(mVideoFrame->mData);
+		FSL_FREE(mVideoFrame->pBuffer);
         FSL_DELETE(mVideoFrame);
         return NULL;
     }
@@ -283,10 +251,10 @@ void ExtractMetadata(OMX_MetadataExtractor* mExtractor)
 		for (OMX_U32 j = 0; j < kNumMapEntries; j ++) {
 			if (fsl_osal_strcmp((const fsl_osal_char*)pMetadata->nKey, kKeyMap[j].tag) == 0) {
 				if (fsl_osal_strcmp((const fsl_osal_char*)pMetadata->nKey, "albumart") == 0) {
-					mAlbumArt = FSL_NEW(MediaAlbumArt, ());
-					mAlbumArt->mSize = pMetadata->nValueSizeUsed;
-					mAlbumArt->mData = (OMX_U8*)FSL_MALLOC(pMetadata->nValueSizeUsed);
-					memcpy(mAlbumArt->mData, &pMetadata->nValue, pMetadata->nValueSizeUsed);
+					mAlbumArt = FSL_NEW(Frame, ());
+					mAlbumArt->nSize = pMetadata->nValueSizeUsed;
+					mAlbumArt->pBuffer = (OMX_U8*)FSL_MALLOC(pMetadata->nValueSizeUsed);
+					memcpy(mAlbumArt->pBuffer, &pMetadata->nValue, pMetadata->nValueSizeUsed);
 					printf("Have Albumart.\n");
 				}
 				else {
@@ -388,17 +356,17 @@ gettimeofday (&tv1, NULL);
 	gettimeofday (&tv, NULL);
 	VideoFrame *mVideoFrame = captureFrame(mExtractor);
 
-	if (mAlbumArt && mAlbumArt->mSize != 0) {
-		SaveAlbumArt(argv[1], (char *)mAlbumArt->mData, mAlbumArt->mSize);
-		FSL_FREE(mAlbumArt->mData);
+	if (mAlbumArt && mAlbumArt->nSize != 0) {
+		SaveAlbumArt(argv[1], (char *)mAlbumArt->pBuffer, mAlbumArt->nSize);
+		FSL_FREE(mAlbumArt->pBuffer);
         FSL_DELETE(mAlbumArt);
 	}
-	if (mVideoFrame && mVideoFrame->mSize != 0) {
-		SaveVideoFrame(argv[1], (char *)mVideoFrame->mData, mVideoFrame->mSize);
-		FSL_FREE(mVideoFrame->mData);
+	if (mVideoFrame && mVideoFrame->nSize!= 0) {
+		SaveVideoFrame(argv[1], (char *)mVideoFrame->pBuffer, mVideoFrame->nSize);
+		FSL_FREE(mVideoFrame->pBuffer);
         FSL_DELETE(mVideoFrame);
 	}
- 
+
     if(OMX_TRUE != mExtractor->unLoad(mExtractor)) {
         LOG_ERROR("unload failed.\n");
         return 0;

@@ -10,6 +10,13 @@
 #include "SorensonDec.h"
 #include "Mem.h"
 
+#if 0
+#undef LOG_LOG
+#define LOG_LOG printf
+#undef LOG_DEBUG
+#define LOG_DEBUG printf
+#endif
+
 /*****************************************************************************
  * <Typedefs>
  *****************************************************************************/
@@ -125,7 +132,7 @@ OMX_S32 h263_is_keyframe(NAL_BUF_T * pNalBuf)
 	OMX_U32 code;
 	OMX_S32 version;
 	OMX_S8 pict_type;
-	OMX_U32 temp;
+	unsigned long temp;
 
 	//printf_memory(pNalBuf->buf, 10, 1, 10);
 
@@ -133,7 +140,7 @@ OMX_S32 h263_is_keyframe(NAL_BUF_T * pNalBuf)
 	ld->inbufptr = pNalBuf->buf;
 	ld->BitsLeft = 0;
 	ld->word = 0;
-	temp = (OMX_U32)ld->inbufptr;
+	temp = (unsigned long)ld->inbufptr;
 	if ((temp&3) != 0)
 	{
 		h263_pre_fill_bitstream(ld, (4-(temp&3))*8);
@@ -263,7 +270,7 @@ SorensonDec::SorensonDec()
     sInFmt.nFrameWidth = 320;
     sInFmt.nFrameHeight = 240;
     sInFmt.xFramerate = 30 * Q16_SHIFT;
-    sInFmt.eColorFormat = OMX_COLOR_FormatYUV420Planar;
+    sInFmt.eColorFormat = OMX_COLOR_FormatUnused;
     sInFmt.eCompressionFormat =(OMX_VIDEO_CODINGTYPE)OMX_VIDEO_SORENSON263;
 
 	nInPortFormatCnt = 0;
@@ -277,7 +284,7 @@ SorensonDec::SorensonDec()
 
     bFilterSupportPartilInput = OMX_FALSE;
     nInBufferCnt = 1;
-    nInBufferSize = 128*1024;
+    nInBufferSize = 512*1024;
     nOutBufferCnt = 1;
     nOutBufferSize=sOutFmt.nFrameWidth * sOutFmt.nFrameHeight * pxlfmt2bpp(sOutFmt.eColorFormat) / 8;;
 
@@ -305,6 +312,19 @@ SorensonDec::SorensonDec()
     eSorensonDecState = SORENSONDEC_LOADED;
 }
 
+OMX_ERRORTYPE SorensonDec::SetParameter(
+        OMX_INDEXTYPE nParamIndex,
+        OMX_PTR pComponentParameterStructure)
+{
+    OMX_ERRORTYPE ret = OMX_ErrorNone;
+
+    if (nParamIndex==OMX_IndexParamStandardComponentRole){
+        return OMX_ErrorNone;
+    }else
+        ret = OMX_ErrorUnsupportedIndex;
+
+    return ret;
+}
 
 OMX_ERRORTYPE SorensonDec::GetConfig(OMX_INDEXTYPE nParamIndex, OMX_PTR pComponentParameterStructure)
 {
@@ -321,7 +341,33 @@ OMX_ERRORTYPE SorensonDec::GetConfig(OMX_INDEXTYPE nParamIndex, OMX_PTR pCompone
     else
         return OMX_ErrorUnsupportedIndex;
 }
+OMX_ERRORTYPE SorensonDec::SetCropInfo(OMX_CONFIG_RECTTYPE *sCrop)
+{
+    if(sCrop == NULL || sCrop->nPortIndex != OUT_PORT)
+        return OMX_ErrorBadParameter;
 
+    sOutCrop.nTop = sCrop->nTop;
+    sOutCrop.nLeft = sCrop->nLeft;
+    sOutCrop.nWidth = sCrop->nWidth;
+    sOutCrop.nHeight = sCrop->nHeight;
+    LOG_DEBUG("SetCropInfo w=%d,h=%d",sCrop->nWidth,sCrop->nHeight);
+    return OMX_ErrorNone;
+}
+OMX_ERRORTYPE SorensonDec::GetCropInfo(OMX_CONFIG_RECTTYPE *sCrop)
+{
+    if(sCrop == NULL)
+        return OMX_ErrorBadParameter;
+
+    if(sCrop->nPortIndex != OUT_PORT)
+        return OMX_ErrorUnsupportedIndex;
+
+    sCrop->nLeft = sOutCrop.nLeft;
+    sCrop->nTop = sOutCrop.nTop;
+    sCrop->nWidth = sOutCrop.nWidth;
+    sCrop->nHeight = sOutCrop.nHeight;
+    LOG_DEBUG("GetCropInfo w=%d,h=%d",sCrop->nWidth,sCrop->nHeight);
+    return OMX_ErrorNone;
+}
 OMX_ERRORTYPE SorensonDec::SetInputBuffer(
         OMX_PTR pBuffer,
         OMX_S32 nSize,
@@ -451,8 +497,8 @@ OMX_ERRORTYPE SorensonDec::GetOutputBuffer(OMX_PTR *ppBuffer,OMX_S32* pOutSize)
         aligned_height = ALIGN16(Info.height);
 
         OMX_U8 *y_addr = (OMX_U8 *)(*ppBuffer);
-        OMX_U8 *u_addr = (OMX_U8 *)ALIGN_CHROMA(((int)y_addr) + nPadWidth * nPadHeight);
-        OMX_U8 *v_addr = (OMX_U8 *)ALIGN_CHROMA(((int)u_addr) + nPadWidth * nPadHeight/4);
+        OMX_U8 *u_addr = (OMX_U8 *)ALIGN_CHROMA(((long)y_addr) + nPadWidth * nPadHeight);
+        OMX_U8 *v_addr = (OMX_U8 *)ALIGN_CHROMA(((long)u_addr) + nPadWidth * nPadHeight/4);
 
 		fsl_osal_memset(y_addr, 0, u_addr - y_addr);
 		fsl_osal_memset(u_addr, 128, v_addr - u_addr);
@@ -512,11 +558,13 @@ OMX_ERRORTYPE SorensonDec::DetectOutputFmt()
     nOutBufferCnt = 3;
     sOutFmt.nFrameWidth = nPadWidth;
     sOutFmt.nFrameHeight = nPadHeight;
+    sOutFmt.nStride = sOutFmt.nFrameWidth;
+    sOutFmt.nSliceHeight = sOutFmt.nFrameHeight;
 
     sOutCrop.nLeft = 0;
     sOutCrop.nTop = 0;
-    sOutCrop.nWidth = sInFmt.nFrameWidth & (~7);
-    sOutCrop.nHeight = sInFmt.nFrameHeight & (~7);
+    sOutCrop.nWidth = sInFmt.nFrameWidth;
+    sOutCrop.nHeight = sInFmt.nFrameHeight;
 
     VideoFilter::OutputFmtChanged();
 
@@ -548,8 +596,8 @@ void SorensonDec::CopyOutputFrame(OMX_U8 *pOutputFrame)
 
         if(sOutFmt.eColorFormat != OMX_COLOR_Format16bitRGB565){
             OMX_U8 *y_addr = (OMX_U8 *)pOutBuffer;
-            OMX_U8 *u_addr = (OMX_U8 *)ALIGN_CHROMA(((int)y_addr) + nPadWidth * nPadHeight);
-            OMX_U8 *v_addr = (OMX_U8 *)ALIGN_CHROMA(((int)u_addr) + nPadWidth * nPadHeight/4);
+            OMX_U8 *u_addr = (OMX_U8 *)ALIGN_CHROMA(((long)y_addr) + nPadWidth * nPadHeight);
+            OMX_U8 *v_addr = (OMX_U8 *)ALIGN_CHROMA(((long)u_addr) + nPadWidth * nPadHeight/4);
             for (i = 0; i < aligned_height; i++)
                 fsl_osal_memcpy(y_addr + i*nPadWidth, pOutputFrame + i*Info.stride, Info.width);
             for (i = 0; i < aligned_height/2; i++)

@@ -444,8 +444,8 @@ OMX_ERRORTYPE OMXCore::OMX_ComponentNameEnum(
 	}
 
 	pComponentInfoPtr = ComponentList.GetNode(nIndex);
-    if(pComponentInfoPtr->ComponentName == NULL)
-        return OMX_ErrorInsufficientResources;
+    //if(pComponentInfoPtr->ComponentName == NULL)
+    //    return OMX_ErrorInsufficientResources;
 
 	if (nNameLength >= fsl_osal_strlen((fsl_osal_char *)pComponentInfoPtr->ComponentName)+1)
 	{

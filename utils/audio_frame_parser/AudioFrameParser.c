@@ -11,8 +11,6 @@
 #include "Mem.h"
 #include "Log.h"
 
-#define MIN_CONTINUOUS_FRAME_NUM 3
-
 AFP_RETURN CheckFrame(AUDIO_FRAME_INFO *pFrameInfo, fsl_osal_u8 *pBuffer, fsl_osal_u32 nBufferLen,fsl_osal_u32 nHeadSize,IsValidHeader fpIsValidHeader)
 {
     AFP_RETURN ret = AFP_SUCCESS;
@@ -64,6 +62,7 @@ AFP_RETURN CheckFrame(AUDIO_FRAME_INFO *pFrameInfo, fsl_osal_u8 *pBuffer, fsl_os
 
         if(Info.frm_size + nOffset == nBufferLen){
             printf("CheckFrame frame size=%d,buffer len=%d",Info.frm_size,nBufferLen);
+            pFrameInfo->bGotOneFrame = E_FSL_OSAL_TRUE;
             pFrameInfo->nNextFrameSize = 0;
             nHeaderCount ++;
             break;
@@ -76,28 +75,16 @@ AFP_RETURN CheckFrame(AUDIO_FRAME_INFO *pFrameInfo, fsl_osal_u8 *pBuffer, fsl_os
 
         pHeader = pBuffer + nOffset;
 
-        // Check frame return true only if find more than 3 continuous frame
-        while(nOffset + nHeadSize <= nBufferLen) {
-            if(fpIsValidHeader(pHeader,&Info) && Info.frm_size > 0){
-                pFrameInfo->nNextFrameSize = Info.frm_size;
-                nOffset += Info.frm_size;
-                pHeader = pBuffer + nOffset;
-                nHeaderCount ++;
-                if(nHeaderCount >= MIN_CONTINUOUS_FRAME_NUM)
-                    break;
-            }else{
-                nHeaderCount = 0;
-                nOffset = nFrameOffset+1;
-                break;
-            }
-        }
-        if(nHeaderCount >= MIN_CONTINUOUS_FRAME_NUM) {
+        if(fpIsValidHeader(pHeader,&Info)){
             pFrameInfo->bGotOneFrame = E_FSL_OSAL_TRUE;
+            pFrameInfo->nNextFrameSize = Info.frm_size;
+            nHeaderCount ++;
             break;
-        }
-        else
+        }else{
+            nHeaderCount --;
+            nOffset = nFrameOffset+1;
             continue;
-
+        }
     }
 
     if(nFirstFrameSize > nHeadSize){

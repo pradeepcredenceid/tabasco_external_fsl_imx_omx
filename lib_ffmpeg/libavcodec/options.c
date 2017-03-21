@@ -40,7 +40,7 @@ static const char* context_to_name(void* ptr) {
 #ifdef offsetof
 #undef offsetof
 #endif
-#define offsetof(T, F) ((unsigned int)((char *)&((T *)0)->F))
+#define offsetof(T, F) ((unsigned long)((char *)&((T *)0)->F))
 #define OFFSET(x) offsetof(AVCodecContext,x)
 #define DEFAULT 0 //should be NAN but it does not work as it is not a constant in glibc as required by ANSI/ISO C
 //these names are too long to be readable

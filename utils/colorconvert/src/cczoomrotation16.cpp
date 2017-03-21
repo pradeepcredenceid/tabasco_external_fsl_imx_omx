@@ -245,7 +245,7 @@ int32 ColorConvert16::Convert(uint8 **yuvBuf, uint8 *rgbBuf)
     assert(yuvBuf[2]);
     assert(rgbBuf);
 
-    if (((uint32)rgbBuf)&0x3 || ((uint32)yuvBuf[0])&0x3) /* address is not word align */
+    if (((unsigned long)rgbBuf)&0x3 || ((unsigned long)yuvBuf[0])&0x3) /* address is not word align */
     {
         return 0;
     }
@@ -265,7 +265,7 @@ int32 ColorConvert16::Convert(uint8 *yuvBuf, uint8 *rgbBuf)
     assert(yuvBuf);
     assert(rgbBuf);
 
-    if (((uint32)rgbBuf)&0x3 || ((uint32)yuvBuf)&0x3) /* address is not word align */
+    if (((unsigned long)rgbBuf)&0x3 || ((unsigned long)yuvBuf)&0x3) /* address is not word align */
     {
         return 0;
     }

@@ -9,10 +9,15 @@
 
 #include "AudioFilter.h"
 
-
+#if 0
+#undef LOG_DEBUG
+#define LOG_DEBUG printf
+#endif
 AudioFilter::AudioFilter()
 {
     ePlayMode = DEC_FILE_MODE;
+    bSendFirstPortSettingChanged = OMX_TRUE;
+    bFirstOutput = OMX_TRUE;
 }
 
 OMX_ERRORTYPE AudioFilter::GetParameter(
@@ -87,6 +92,29 @@ OMX_ERRORTYPE AudioFilter::SetParameter(
                 ePlayMode=*pMode;
             }
             break;
+        case OMX_IndexParamStandardComponentRole:
+            {
+            OMX_PARAM_COMPONENTROLETYPE *roleParams;
+            roleParams = (OMX_PARAM_COMPONENTROLETYPE *)pComponentParameterStructure;
+            SetRoleFormat((OMX_STRING)roleParams->cRole);
+            //if (fsl_osal_strncmp((const char*)roleParams->cRole, role[0], OMX_MAX_STRINGNAME_SIZE - 1))
+                //return OMX_ErrorUndefined;
+            break;
+            }
+        case OMX_IndexParamAudioOutputConvert:
+            {
+                OMX_PARAM_AUDIO_OUTPUT_CONVERT *pParams = (OMX_PARAM_AUDIO_OUTPUT_CONVERT *)pComponentParameterStructure;
+                bConvertEnable = pParams->bEnable;
+                printf("AudioFilter SetParameter OMX_IndexParamAudioOutputConvert");
+                break;
+            }
+        case OMX_IndexParamAudioSendFirstPortSettingChanged:
+            {
+                OMX_PARAM_AUDIO_SEND_FIRST_PORT_SETTING_CHANGED *pParams = (OMX_PARAM_AUDIO_SEND_FIRST_PORT_SETTING_CHANGED *)pComponentParameterStructure;
+                bSendFirstPortSettingChanged = pParams->bEnable;
+                printf("AudioFilter SetParameter OMX_IndexParamAudioSendFirstPortSettingChanged %d",bSendFirstPortSettingChanged);
+                break;
+            }
 		default:
 			ret = AudioFilterSetParameter(nParamIndex, pComponentParameterStructure);
 			break;
@@ -138,7 +166,13 @@ OMX_ERRORTYPE AudioFilter::InstanceInit()
 	bDecoderEOS = OMX_FALSE;
 	bDecoderInitFail = OMX_FALSE;
     bFirstInBuffer = OMX_TRUE;
+    bFirstOutput = OMX_TRUE;
     nRequiredSize = 0;
+    bStartTime = OMX_TRUE;
+    nOutputBitPerSample = 16;
+    pConvertBuffer = NULL;
+    if(bConvertEnable)
+        pConvertBuffer = (OMX_U8*)FSL_MALLOC(200000);//200k is large enough
 
 	return ret;
 }
@@ -158,6 +192,7 @@ OMX_ERRORTYPE AudioFilter::InstanceDeInit()
 	AudioRingBuffer.BufferFree();
 	TS_Manager.Free();
 
+    FSL_FREE(pConvertBuffer);
     return ret;
 }
 
@@ -234,7 +269,7 @@ OMX_ERRORTYPE AudioFilter::ProcessDataBuffer()
 
 	}
 
-    //only 2 frames in audio ringbuffer for DEC_STREAM_MODE 
+    //only 2 frames in audio ringbuffer for DEC_STREAM_MODE
     if(ePlayMode == DEC_FILE_MODE){
         ringBufferLen = nPushModeInputLen;
     }else if(nRequiredSize > 0){
@@ -403,10 +438,13 @@ OMX_ERRORTYPE AudioFilter::ProcessOutputDataBuffer()
 
 	if (DecodeRet == AUDIO_FILTER_EOS && bReceivedEOS == OMX_TRUE && AudioRingBuffer.AudioDataLen() == 0)
 	{
-		LOG_DEBUG("Audio Filter %s send EOS, len %d\n", role[0], pOutBufferHdr->nFilledLen);
-		pOutBufferHdr->nFlags |= OMX_BUFFERFLAG_EOS;
-		bDecoderEOS = OMX_TRUE;
-		SendEvent(OMX_EventBufferFlag, AUDIO_FILTER_OUTPUT_PORT, OMX_BUFFERFLAG_EOS, NULL);
+	    //if buffer is both the first and the last one, and is empty, send out EOS event directly.
+	    if((bFirstOutput && pOutBufferHdr->nFilledLen == 0) || OMX_ErrorNone == AudioFilterHandleEOS()) {
+		    LOG_DEBUG("Audio Filter %s send EOS, len %d\n", role[0], pOutBufferHdr->nFilledLen);
+		    pOutBufferHdr->nFlags |= OMX_BUFFERFLAG_EOS;
+		    bDecoderEOS = OMX_TRUE;
+		    SendEvent(OMX_EventBufferFlag, AUDIO_FILTER_OUTPUT_PORT, OMX_BUFFERFLAG_EOS, NULL);
+        }
 	}
 
 	if (bFirstFrame == OMX_TRUE)
@@ -421,12 +459,63 @@ OMX_ERRORTYPE AudioFilter::ProcessOutputDataBuffer()
         return OMX_ErrorNone;
     }
 
+    if(bFirstOutput) {
+        if(OMX_ErrorNone == AudioFilterHandleBOS())
+            bFirstOutput = OMX_FALSE;
+    }
+
+    if(bConvertEnable && pConvertBuffer != NULL){
+        OMX_U32 outSize = 0;
+        if(PcmMode.nBitPerSample != 16){
+            nOutputBitPerSample = PcmMode.nBitPerSample;
+            PcmMode.nBitPerSample = 16;
+        }
+        if(nOutputBitPerSample != 16 && OMX_ErrorNone == ConvertData(pConvertBuffer,&outSize,pOutBufferHdr->pBuffer,pOutBufferHdr->nFilledLen)){
+            //output buffer size will reduce after call the convert function.
+            fsl_osal_memcpy(pOutBufferHdr->pBuffer,pConvertBuffer,outSize);
+            pOutBufferHdr->nFilledLen = outSize;
+        }
+    }
+
     ports[AUDIO_FILTER_OUTPUT_PORT]->SendBuffer(pOutBufferHdr);
     pOutBufferHdr = NULL;
 
     return OMX_ErrorNone;
 }
+OMX_ERRORTYPE AudioFilter::ConvertData(OMX_U8* pOut, OMX_U32 *nOutSize, OMX_U8 *pIn, OMX_U32 nInSize)
+{
+    if(NULL == pOut || NULL == pIn)
+        return OMX_ErrorUndefined;
 
+    if(nOutputBitPerSample == 8) {
+        // Convert to U16
+        OMX_S32 i,Len;
+        OMX_U16 *pDst =(OMX_U16 *)pOut;
+        OMX_S8 *pSrc =(OMX_S8 *)pIn;
+        Len = nInSize;
+        for(i=0;i<Len;i++) {
+            *pDst++ = (OMX_U16)(*pSrc++) << 8;
+        }
+        nInSize *= 2;
+    } else if(nOutputBitPerSample == 24) {
+        OMX_S32 i,j,Len;
+        OMX_U8 *pDst =(OMX_U8 *)pOut;
+        OMX_U8 *pSrc =(OMX_U8 *)pIn;
+        Len = nInSize / (nOutputBitPerSample>>3) / PcmMode.nChannels;
+        for(i=0;i<Len;i++) {
+            for(j=0;j<(OMX_S32)PcmMode.nChannels;j++) {
+                pDst[0] = pSrc[1];
+                pDst[1] = pSrc[2];
+                pDst+=2;
+                pSrc+=3;
+            }
+        }
+        nInSize = Len * (16>>3) * PcmMode.nChannels;
+    }
+
+    *nOutSize = nInSize;
+    return OMX_ErrorNone;
+}
 OMX_ERRORTYPE AudioFilter::ComponentReturnBuffer(
         OMX_U32 nPortIndex)
 {
@@ -458,11 +547,30 @@ OMX_ERRORTYPE AudioFilter::FlushComponent(
     }
 
 	bReceivedEOS = OMX_FALSE;
+    bDecoderEOS = OMX_FALSE;
+    bFirstOutput = OMX_TRUE;
 	AudioRingBuffer.BufferReset();
 	TS_Manager.Reset();
+    AudioFilterReset();
 	LOG_DEBUG("Clear ring buffer.\n");
 
     return OMX_ErrorNone;
 }
+
+OMX_ERRORTYPE  AudioFilter::SetRoleFormat(OMX_STRING role)
+{
+    return OMX_ErrorNone;
+}
+
+OMX_ERRORTYPE AudioFilter::AudioFilterHandleBOS()
+{
+    return OMX_ErrorNone;
+}
+
+OMX_ERRORTYPE AudioFilter::AudioFilterHandleEOS()
+{
+    return OMX_ErrorNone;
+}
+
 
 /* File EOF */

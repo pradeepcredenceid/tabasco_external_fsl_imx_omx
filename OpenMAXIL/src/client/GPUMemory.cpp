@@ -57,16 +57,16 @@ static OMX_ERRORTYPE InitGPUMemAllocator(GPUMCONTEXT *Context, OMX_U32 nBufferSi
     Context->nBufferNum = nBufferNum;
     Context->nTotalSize = total_bytes;
 
-    Context->VAddrBase = (OMX_PTR)gbuf->buf_vaddr;
-    Context->PAddrBase = (OMX_PTR)gbuf->buf_paddr;
+    Context->VAddrBase = (OMX_PTR)(unsigned long)gbuf->buf_vaddr;
+    Context->PAddrBase = (OMX_PTR)(unsigned long)gbuf->buf_paddr;
     Context->CpuAddrBase = (OMX_PTR)gbuf;
-    Context->VAddrBase = (OMX_PTR)(((unsigned int)Context->VAddrBase + PAGE_SIZE -1) & ~(PAGE_SIZE -1));
-    Context->PAddrBase = (OMX_PTR)(((unsigned int)Context->PAddrBase + PAGE_SIZE -1) & ~(PAGE_SIZE -1));
+    Context->VAddrBase = (OMX_PTR)(((unsigned long)Context->VAddrBase + PAGE_SIZE -1) & ~(PAGE_SIZE -1));
+    Context->PAddrBase = (OMX_PTR)(((unsigned long)Context->PAddrBase + PAGE_SIZE -1) & ~(PAGE_SIZE -1));
     fsl_osal_memset(Context->VAddrBase, 0, bytes * nBufferNum);
 
     LOG_DEBUG("<gpu> alloc handle: 0x%x, paddr: 0x%x, vaddr: 0x%x",
-		(unsigned int)gbuf, (unsigned int)Context->PAddrBase,
-		(unsigned int)Context->VAddrBase);
+		(unsigned long)gbuf, (unsigned long)Context->PAddrBase,
+		(unsigned long)Context->VAddrBase);
 
     for(OMX_U32 i=0; i<nBufferNum; i++) {
         Context->BufferSlot[i].virt_uaddr= (OMX_U8 *)Context->VAddrBase + Context->nBufferSize * i;
@@ -85,12 +85,12 @@ static OMX_ERRORTYPE DeInitGPUMemAllocator(GPUMCONTEXT *Context)
     struct g2d_buf *gbuf = (struct g2d_buf *)Context->CpuAddrBase;
     if(gbuf) {
         if(g2d_free(gbuf) != 0) {
-           LOG_ERROR("%s: g2d allocator failed to free buffer 0x%x", __FUNCTION__, (unsigned int)gbuf);
+           LOG_ERROR("%s: g2d allocator failed to free buffer 0x%x", __FUNCTION__, (unsigned long)gbuf);
            return OMX_ErrorHardware;
         }
         LOG_DEBUG("<gpu> free handle: 0x%x, paddr: 0x%x, vaddr: 0x%x",
-    		(unsigned int)gbuf, (unsigned int)Context->PAddrBase,
-    		(unsigned int)Context->VAddrBase);
+            (unsigned long)gbuf, (unsigned long)Context->PAddrBase,
+            (unsigned long)Context->VAddrBase);
     }
 
     fsl_osal_memset(Context, 0, sizeof(GPUMCONTEXT));

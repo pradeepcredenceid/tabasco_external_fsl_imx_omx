@@ -4,7 +4,6 @@ LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
 
 LOCAL_SRC_FILES := \
-SOURCE_FILES = \
 	       Mem.cpp \
 	       Queue.cpp \
 	       RegistryAnalyser.cpp \
@@ -31,11 +30,6 @@ LOCAL_C_INCLUDES += $(FSL_OMX_INCLUDES) \
 			$(LOCAL_PATH)/audio_frame_parser
 
 LOCAL_SHARED_LIBRARIES := libdl lib_omx_osal_v2_arm11_elinux
-
-ifeq ($(HAVE_FSL_IMX_CODEC), true)
-            LOCAL_CFLAGS += -DUSE_FSL_JPEG_ENCODER
-            LOCAL_SHARED_LIBRARIES += libfsl_jpeg_enc_arm11_elinux
-endif
 
 LOCAL_PRELINK_MODULE := false
 	

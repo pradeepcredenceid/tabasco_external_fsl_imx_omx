@@ -14,7 +14,14 @@
 
 #define MP3D_FRAME_SIZE  1152
 #define MP3_PUSH_MODE_LEN   (2048*4)
+#define MP3_DECODER_DELAY 529 //samples
 
+/* Mp3 dec handle eos state should be 0 ->1 -> 2 */
+typedef enum{
+    STATE_TO_ADD_ONE_FRAME    = 0,
+    STATE_TO_ADD_DELAY_SAMPLE = 1,
+    STATE_DONE                = 2
+}MP3DEC_HANDLE_EOS_STATE;
 Mp3Dec::Mp3Dec()
 {
     fsl_osal_strcpy((fsl_osal_char*)name, "OMX.Freescale.std.audio_decoder.mp3.sw-based");
@@ -27,6 +34,7 @@ Mp3Dec::Mp3Dec()
     codingType = OMX_AUDIO_CodingMP3;
     nPushModeInputLen = MP3_PUSH_MODE_LEN;
     outputPortBufferSize = MP3D_FRAME_SIZE* 2*2;
+    handleEOSState = STATE_TO_ADD_ONE_FRAME;
 
     decoderLibName = "lib_mp3d_wrap_arm12_elinux_android.so";
     OMX_INIT_STRUCT(&Mp3Type, OMX_AUDIO_PARAM_MP3TYPE);
@@ -36,7 +44,7 @@ Mp3Dec::Mp3Dec()
     Mp3Type.eChannelMode = OMX_AUDIO_ChannelModeStereo;
     Mp3Type.eFormat = OMX_AUDIO_MP3StreamFormatMP1Layer3;
     LOG_DEBUG("Unia -> MP3");
-
+    delayLeft = 0;
 }
 OMX_ERRORTYPE Mp3Dec::AudioFilterGetParameter(OMX_INDEXTYPE nParamIndex, OMX_PTR pComponentParameterStructure)
 {
@@ -206,6 +214,61 @@ OMX_ERRORTYPE Mp3Dec::UniaDecoderParseFrame(OMX_U8* pBuffer,OMX_U32 len,UniaDecF
 
     return OMX_ErrorNone;
 }
+
+OMX_ERRORTYPE Mp3Dec::AudioFilterHandleBOS()
+{
+    if(delayLeft == 0)
+        delayLeft = MP3_DECODER_DELAY * Mp3Type.nChannels * sizeof(OMX_S16);
+
+    // The decoder delay is 529 samples, so trim them off from the start of the first output buffer.
+    // the process of 529 samples is to align with google's code and to pass cts testDecodeMp3Lame, etc.
+    if(pOutBufferHdr->nFilledLen > delayLeft){
+        pOutBufferHdr->nOffset += delayLeft;
+        pOutBufferHdr->nFilledLen -= delayLeft;
+        delayLeft = 0;
+
+    }else {
+        delayLeft -= pOutBufferHdr->nFilledLen;
+        pOutBufferHdr->nOffset = 0;
+        pOutBufferHdr->nFilledLen = 0;
+    }
+
+    //meet BOS, tran state to STATE_TO_ADD_ONE_FRAME.
+    if(delayLeft == 0){
+        handleEOSState = STATE_TO_ADD_ONE_FRAME;
+        return OMX_ErrorNone;
+    }else
+        return OMX_ErrorNotReady;
+}
+
+OMX_ERRORTYPE Mp3Dec::AudioFilterHandleEOS()
+{
+    OMX_ERRORTYPE ret = OMX_ErrorNone;
+    OMX_U32 padding = 0;
+
+    if(handleEOSState == STATE_TO_ADD_ONE_FRAME) {
+        // pad the end of the stream with one buffer of which the value are all 2(avoid gap/overlap),
+        // since that the actual last buffer isn't sent by mp3 decoder.
+        padding = MP3D_FRAME_SIZE * Mp3Type.nChannels * sizeof(OMX_S16);
+        handleEOSState = STATE_TO_ADD_DELAY_SAMPLE;
+        ret = OMX_ErrorNotComplete;
+    }
+    else if(handleEOSState == STATE_TO_ADD_DELAY_SAMPLE) {
+        // pad the end of the stream with 529 samples, since that many samples
+        // were trimmed off the beginning when decoding started
+        padding = MP3_DECODER_DELAY * Mp3Type.nChannels * sizeof(OMX_S16);
+        handleEOSState = STATE_DONE;
+        ret = OMX_ErrorNotComplete;
+    }
+    else
+        return ret;
+
+    fsl_osal_memset(pOutBufferHdr->pBuffer + pOutBufferHdr->nOffset + pOutBufferHdr->nFilledLen, 2, padding);
+    pOutBufferHdr->nFilledLen += padding;
+
+    return ret;
+}
+
 
 /**< C style functions to expose entry point for the shared library */
 extern "C" {

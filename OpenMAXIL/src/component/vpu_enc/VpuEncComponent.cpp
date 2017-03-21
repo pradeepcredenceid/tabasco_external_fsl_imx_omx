@@ -61,7 +61,7 @@ typedef unsigned int UINT32;		//avoid compiler warning in printf
 #define DEFAULT_ENC_FRM_RATE			(30 * Q16_SHIFT)
 #define DEFAULT_ENC_FRM_BITRATE		(256 * 1024)
 
-#define DEFAULT_ENC_BUF_IN_CNT		0x3
+#define DEFAULT_ENC_BUF_IN_CNT		0x2
 #define DEFAULT_ENC_BUF_IN_SIZE		(DEFAULT_ENC_FRM_WIDTH*DEFAULT_ENC_FRM_HEIGHT*3/2)
 #define DEFAULT_ENC_BUF_OUT_CNT		0x3
 #define DEFAULT_ENC_BUF_OUT_SIZE		(1024*1024)	//FIXME: set one big enough value !!!
@@ -2352,6 +2352,7 @@ FilterBufRetCode VpuEncoder::FilterOneBuffer()
 					nPreOutSize=sInFmt.nFrameWidth * sInFmt.nFrameHeight*pxlfmt2bpp(ePreColorFormat)/8;
 					PreCreateOutFrame(&sEncAllocOutMemInfo, &sMemOperator, &sEncPreProcessOutFrameInfo, pPreOutReturnQueue, nPreOutSize, PRE_OUT_BUF_NUM);
 					PreThreadRun();
+					bThreadedPreProcess = OMX_TRUE;
 				}
 			}
 

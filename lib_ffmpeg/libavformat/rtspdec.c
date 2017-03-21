@@ -353,8 +353,8 @@ retry:
     RTSPStream *rtsp_st = rt->rtsp_streams[pkt->stream_index];
     RTPDemuxContext *rtpctx = rtsp_st->transport_priv;
     if(rtpctx->range_changed) {
-                    av_log(s, AV_LOG_WARNING, "range_start_offset:%lld, pts:%lld\n",rtpctx->range_start_offset,pkt->pts);
-        if(rtpctx->range_start_offset > 0 && abs(rtpctx->range_start_offset - pkt->pts) > 100000)
+        av_log(s, AV_LOG_WARNING, "range_start_offset:%"PRId64", pts:%"PRId64"\n",rtpctx->range_start_offset,pkt->pts);
+        if(rtpctx->range_start_offset > 0 && llabs(rtpctx->range_start_offset - pkt->pts) > 100000)
             pkt->flags |= AV_PKT_FLAG_DROP;
         else
             rtpctx->range_changed = 0;

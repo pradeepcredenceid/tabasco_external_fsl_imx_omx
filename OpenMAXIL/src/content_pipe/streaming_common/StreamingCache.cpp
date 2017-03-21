@@ -157,7 +157,7 @@ OMX_ERRORTYPE StreamingCache::Init(StreamingProtocol * protocol, OMX_U32 nCacheS
     for(i=0; i<(OMX_S32)mBlockCnt; i++) {
         pNode->nOffset = 0;
         pNode->nLength = 0;
-        pNode->pData = (OMX_PTR)((OMX_U32)mCacheBuffer + i * mBlockSize);
+        pNode->pData = (OMX_PTR)((unsigned long)mCacheBuffer + i * mBlockSize);
         pNode->nHeaderLen = 0;
         pNode ++;
     }
@@ -241,12 +241,12 @@ OMX_U32 StreamingCache::ReadAt(
     LOG_DEBUG("StreamingCache::ReadAt() read from node %d [%lld:%d]\n", mPlayNode, pNode->nOffset, pNode->nLength);
 
     if((nOffset + nSize) <= (pNode->nOffset + pNode->nLength)) {
-        OMX_PTR src = (OMX_PTR)((OMX_U32)pNode->pData + pNode->nHeaderLen + (nOffset - pNode->nOffset));
+        OMX_PTR src = (OMX_PTR)((unsigned long)pNode->pData + pNode->nHeaderLen + (nOffset - pNode->nOffset));
         fsl_osal_memcpy(pBuffer, src, nSize);
         //printf("1:Copy from cache node %d, nOffset=%lld, request=%d\n", mStartNode, nOffset, nSize);
     }
     else {
-        OMX_PTR src = (OMX_PTR)((OMX_U32)pNode->pData + pNode->nHeaderLen + (nOffset - pNode->nOffset));
+        OMX_PTR src = (OMX_PTR)((unsigned long)pNode->pData + pNode->nHeaderLen + (nOffset - pNode->nOffset));
         OMX_U32 left = pNode->nLength - (nOffset - pNode->nOffset);
         fsl_osal_memcpy(pBuffer, src, left);
         //printf("2:Copy from cache node %d, offset=%lld, request=%d\n", mStartNode, nOffset, nSize);
@@ -254,7 +254,7 @@ OMX_U32 StreamingCache::ReadAt(
 
         OMX_U64 offset = nOffset + left;
         OMX_U32 size = nSize - left;
-        OMX_PTR dest = (OMX_PTR)((OMX_U32)pBuffer + left);
+        OMX_PTR dest = (OMX_PTR)((unsigned long)pBuffer + left);
         do {
             mPlayNode = (mPlayNode+1)%mBlockCnt;
             pNode = mCacheNodeRoot + mPlayNode;
@@ -266,7 +266,7 @@ OMX_U32 StreamingCache::ReadAt(
             //printf("2:Copy from cache node %d, offset=%lld, length=%d\n", mStartNode, nOffset, copy);
             offset += copy;
             size -= copy;
-            dest = (OMX_PTR)((OMX_U32)dest + copy);
+            dest = (OMX_PTR)((unsigned long)dest + copy);
         } while(size > 0);
 
         LOG_DEBUG("StreamingCache::ReadAt() ok, to node %d [%lld:%d]\n", mPlayNode, pNode->nOffset, pNode->nLength);

@@ -20,7 +20,7 @@
     ({\
      fsl_osal_ptr __buf = NULL; \
      __buf = fsl_osal_malloc_new(size+PRE_SIZE); \
-     __buf = (fsl_osal_ptr)((fsl_osal_u32)__buf + PRE_SIZE); \
+     __buf = (fsl_osal_ptr)((unsigned long)__buf + PRE_SIZE); \
      __buf; \
      })
 
@@ -31,7 +31,7 @@
     do { \
         fsl_osal_ptr __mem = ptr; \
         if(__mem) { \
-            __mem = (fsl_osal_ptr)((fsl_osal_u32)__mem - PRE_SIZE); \
+            __mem = (fsl_osal_ptr)((unsigned long)__mem - PRE_SIZE); \
             fsl_osal_dealloc(__mem); \
             ptr=NULL; \
         }\
@@ -443,7 +443,6 @@ OMX_ERRORTYPE Port::FreeBuffer(
     LOG_DEBUG("Remained buffer cnt: %d\n", nBufferHdrNum);
 
     if(nBufferHdrNum == 0) {
-        sPortDef.bEnabled = OMX_FALSE;
         sPortDef.bPopulated = OMX_FALSE;
         base->PortNotify(nPortIndex,PORT_OFF);
     }

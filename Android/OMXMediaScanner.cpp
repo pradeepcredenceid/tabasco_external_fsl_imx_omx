@@ -1,5 +1,5 @@
 /**
- *  Copyright (c) 2010-2013, Freescale Semiconductor Inc.,
+ *  Copyright (c) 2010-2016, Freescale Semiconductor Inc.,
  *  All Rights Reserved.
  *
  *  The following programs are the sole property of Freescale Semiconductor Inc.,
@@ -22,24 +22,25 @@ OMXMediaScanner::OMXMediaScanner() {}
 
 OMXMediaScanner::~OMXMediaScanner() {}
 
-static bool FileHasAcceptableExtension(const char *extension) {
-    static const char *kValidExtensions[] = {
+static bool KnownFileExtension(const char *extension) {
+    bool ret = false;
+    static const char *validFileExt[] = {
 		".avi", ".divx", ".mp3", ".aac", ".bsac", ".ac3", ".wmv",
 		".wma", ".asf", ".rm", ".rmvb", ".ra", ".3gp", ".3gpp", ".3g2",
 		".mp4", ".mov", ".m4v", ".m4a", ".flac", ".wav", ".mpg", ".ts",
 		".vob", ".ogg", ".mkv", ".f4v", ".flv", ".webm", ".out", ".amr", ".awb",
         ".mid", ".smf", ".imy", ".midi", ".xmf", ".rtttl", ".rtx", ".ota", ".mxmf"
     };
-    static const size_t kNumValidExtensions =
-        sizeof(kValidExtensions) / sizeof(kValidExtensions[0]);
+    static const size_t validFileExtNum = sizeof(validFileExt) / sizeof(validFileExt[0]);
 
-    for (size_t i = 0; i < kNumValidExtensions; ++i) {
-        if (!strcasecmp(extension, kValidExtensions[i])) {
-            return true;
+    for (size_t i = 0; i < validFileExtNum; ++i) {
+        if (!strcasecmp(validFileExt[i], extension)) {
+            ret = true;
         }
     }
-	return false;
+	return ret;
 }
+
 #if (ANDROID_VERSION <= HONEY_COMB)
 static status_t HandleMIDI(
         const char *filename, MediaScannerClient *client) {
@@ -47,9 +48,9 @@ static status_t HandleMIDI(
 static MediaScanResult HandleMIDI(
         const char *filename, MediaScannerClient *client) {
 #endif
-    // get the library configuration and do sanity check
+
     const S_EAS_LIB_CONFIG* pLibConfig = EAS_Config();
-    if ((pLibConfig == NULL) || (LIB_VERSION != pLibConfig->libVersion)) {
+    if (NULL == pLibConfig || pLibConfig->libVersion != LIB_VERSION) {
         LOG_ERROR("EAS library/header mismatch\n");
 #if (ANDROID_VERSION <= HONEY_COMB)
         return NO_MEMORY;
@@ -57,34 +58,44 @@ static MediaScanResult HandleMIDI(
         return MEDIA_SCAN_RESULT_ERROR;
 #endif
     }
-    EAS_I32 temp;
 
-    // spin up a new EAS engine
-    EAS_DATA_HANDLE easData = NULL;
-    EAS_HANDLE easHandle = NULL;
-    EAS_RESULT result = EAS_Init(&easData);
-    if (result == EAS_SUCCESS) {
-        EAS_FILE file;
+    EAS_I32 duation;
+    EAS_DATA_HANDLE dataHandle = NULL;
+    EAS_HANDLE handle = NULL;
+    EAS_FILE file;
+    EAS_RESULT res;
+
+    do {
+        res = EAS_Init(&dataHandle);
+        if (res != EAS_SUCCESS)
+            break;
+
         file.path = filename;
-        file.fd = 0;
-        file.offset = 0;
         file.length = 0;
-        result = EAS_OpenFile(easData, &file, &easHandle);
+        file.offset = 0;
+        file.fd = 0;
+
+        res = EAS_OpenFile(dataHandle, &file, &handle);
+        if (res != EAS_SUCCESS)
+            break;
+
+        res = EAS_Prepare(dataHandle, handle);
+        if (res != EAS_SUCCESS)
+            break;
+
+        res = EAS_ParseMetaData(dataHandle, handle, &duation);
+        if (res != EAS_SUCCESS)
+            break;
+    } while (0);
+
+    if (handle) {
+        EAS_CloseFile(dataHandle, handle);
     }
-    if (result == EAS_SUCCESS) {
-        result = EAS_Prepare(easData, easHandle);
-    }
-    if (result == EAS_SUCCESS) {
-        result = EAS_ParseMetaData(easData, easHandle, &temp);
-    }
-    if (easHandle) {
-        EAS_CloseFile(easData, easHandle);
-    }
-    if (easData) {
-        EAS_Shutdown(easData);
+    if (dataHandle) {
+        EAS_Shutdown(dataHandle);
     }
 
-    if (result != EAS_SUCCESS) {
+    if (res != EAS_SUCCESS) {
 #if (ANDROID_VERSION <= HONEY_COMB)
         return UNKNOWN_ERROR;
 #elif (ANDROID_VERSION >= ICS)
@@ -93,19 +104,21 @@ static MediaScanResult HandleMIDI(
     }
 
     char buffer[20];
-    sprintf(buffer, "%ld", temp);
-    status_t status = client->addStringTag("duration", buffer);
-    if (status != OK) {
+    status_t status;
+
+    sprintf(buffer, "%ld", duation);
+    status = client->addStringTag("duration", buffer);
+
 #if (ANDROID_VERSION <= HONEY_COMB)
+    if (status != OK)
         return NO_MEMORY;
+    else
+        return OK;
 #elif (ANDROID_VERSION >= ICS)
+    if (status != OK)
         return MEDIA_SCAN_RESULT_ERROR;
-#endif
-    }
-#if (ANDROID_VERSION <= HONEY_COMB)
-    return OK;
-#elif (ANDROID_VERSION >= ICS)
-    return MEDIA_SCAN_RESULT_OK;
+    else
+        return MEDIA_SCAN_RESULT_OK;
 #endif
 }
 
@@ -116,14 +129,18 @@ MediaScanResult OMXMediaScanner::processFile(
 #endif
 		const char *path, const char *mimeType,
 		MediaScannerClient &client) {
+
+    const char *mime = NULL, *ext = NULL;
+    MediaMetadataRetriever *mRetriever = NULL;
+
 	LOG_DEBUG("processFile '%s'.", path);
 
 	client.setLocale(locale());
     client.beginFile();
 
-    const char *extension = strrchr(path, '.');
+    ext = strrchr(path, '.');
 
-    if (!extension) {
+    if (ext != NULL) {
 #if (ANDROID_VERSION <= HONEY_COMB)
 		return UNKNOWN_ERROR;
 #elif (ANDROID_VERSION >= ICS)
@@ -131,7 +148,7 @@ MediaScanResult OMXMediaScanner::processFile(
 #endif
     }
 
-    if (!FileHasAcceptableExtension(extension)) {
+    if (!KnownFileExtension(ext)) {
         client.endFile();
 #if (ANDROID_VERSION <= HONEY_COMB)
 		return UNKNOWN_ERROR;
@@ -140,20 +157,19 @@ MediaScanResult OMXMediaScanner::processFile(
 #endif
     }
 
-    if (!strcasecmp(extension, ".mid")
-            || !strcasecmp(extension, ".smf")
-            || !strcasecmp(extension, ".imy")
-            || !strcasecmp(extension, ".midi")
-            || !strcasecmp(extension, ".xmf")
-            || !strcasecmp(extension, ".rtttl")
-            || !strcasecmp(extension, ".rtx")
-            || !strcasecmp(extension, ".ota")
-            || !strcasecmp(extension, ".mxmf")) {
+    if (!strcasecmp(ext, ".mid")
+            || !strcasecmp(ext, ".smf")
+            || !strcasecmp(ext, ".imy")
+            || !strcasecmp(ext, ".midi")
+            || !strcasecmp(ext, ".xmf")
+            || !strcasecmp(ext, ".rtttl")
+            || !strcasecmp(ext, ".rtx")
+            || !strcasecmp(ext, ".ota")
+            || !strcasecmp(ext, ".mxmf")) {
         LOG_DEBUG("OMXMediaScanner Handle MIDI file");
         return HandleMIDI(path, &client);
     }
 
-	MediaMetadataRetriever *mRetriever = NULL;
 	mRetriever = FSL_NEW(MediaMetadataRetriever, ());
 	if(mRetriever == NULL) {
         client.endFile();
@@ -172,12 +188,11 @@ MediaScanResult OMXMediaScanner::processFile(
                 METADATA_MODE_METADATA_RETRIEVAL_ONLY) == OK) {
 #endif
 
-		const char *value;
-		if ((value = mRetriever->extractMetadata(
-						METADATA_KEY_MIMETYPE)) != NULL) {
-			printf("Key: mime\t Value: %s\n",  value);
-			client.setMimeType(value);
-		}
+        mime = mRetriever->extractMetadata(METADATA_KEY_MIMETYPE);
+        if (mime) {
+            printf("Key: mime\t Value: %s\n",  mime);
+            client.setMimeType(mime);
+        }
 
         struct KeyMap {
             const char *tag;
@@ -203,13 +218,13 @@ MediaScanResult OMXMediaScanner::processFile(
 			{ "location", METADATA_KEY_LOCATION},
 #endif
         };
-        static const size_t kNumEntries = sizeof(kKeyMap) / sizeof(kKeyMap[0]);
+        static const size_t num = sizeof(kKeyMap) / sizeof(kKeyMap[0]);
 
-        for (size_t i = 0; i < kNumEntries; ++i) {
-            const char *value;
-			if ((value = mRetriever->extractMetadata(kKeyMap[i].key)) != NULL) {
-				LOG_DEBUG("Key: %s\t Value: %s\n", kKeyMap[i].tag, value);
-				client.addStringTag(kKeyMap[i].tag, value);
+        for (size_t i = 0; i < num; ++i) {
+            const char *metaData = mRetriever->extractMetadata(kKeyMap[i].key);
+			if (NULL != metaData) {
+				LOG_DEBUG("Key: %s\t Value: %s\n", kKeyMap[i].tag, metaData);
+				client.addStringTag(kKeyMap[i].tag, metaData);
 			}
         }
 	} else {

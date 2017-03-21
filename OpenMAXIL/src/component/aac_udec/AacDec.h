@@ -28,6 +28,7 @@ class AacDec : public UniaDecoder{
 		OMX_ERRORTYPE UniaDecoderGetParameter(UA_ParaType index,OMX_S32 * value);
 		OMX_ERRORTYPE AudioFilterCheckFrameHeader();
         OMX_ERRORTYPE UniaDecoderParseFrame(OMX_U8* pBuffer,OMX_U32 len,UniaDecFrameInfo *info);
+        OMX_ERRORTYPE AudioFilterHandleEOS();
 		OMX_AUDIO_PARAM_AACPROFILETYPE AacType;
         OMX_BOOL bFrameCheck;
 };

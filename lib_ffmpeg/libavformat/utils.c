@@ -20,7 +20,7 @@
  */
 
 /* #define DEBUG */
-
+#include <math.h>
 #include "avformat.h"
 #include "avio_internal.h"
 #include "internal.h"
@@ -2193,7 +2193,7 @@ enum CodecID av_codec_get_id(const AVCodecTag * const *tags, unsigned int tag)
 static void compute_chapters_end(AVFormatContext *s)
 {
     unsigned int i, j;
-    int64_t max_time = s->duration + (s->start_time == AV_NOPTS_VALUE) ? 0 : s->start_time;
+    int64_t max_time = s->duration + ((s->start_time == AV_NOPTS_VALUE) ? 0 : s->start_time);
 
     for (i = 0; i < s->nb_chapters; i++)
         if (s->chapters[i]->end == AV_NOPTS_VALUE) {
@@ -3368,7 +3368,7 @@ void av_dump_format(AVFormatContext *ic,
             int secs, us;
             av_log(NULL, AV_LOG_INFO, ", start: ");
             secs = ic->start_time / AV_TIME_BASE;
-            us = abs(ic->start_time % AV_TIME_BASE);
+            us = llabs(ic->start_time % AV_TIME_BASE);
             av_log(NULL, AV_LOG_INFO, "%d.%06d",
                    secs, (int)av_rescale(us, 1000000, AV_TIME_BASE));
         }

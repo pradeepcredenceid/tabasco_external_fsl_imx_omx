@@ -737,9 +737,7 @@ OMX_ERRORTYPE AudioRender::RenderPeriod()
 	    TS_PerFrame = (OMX_U64)nConsumedLen/nSampleSize*OMX_TICKS_PER_SECOND/PcmMode.nSamplingRate;
 	    TS_Manager.TS_SetIncrease(TS_PerFrame);
 
-        if (bLiveMode == OMX_TRUE) {
-            TS_Manager.TS_Get(&PlayingTime);
-        }
+        TS_Manager.TS_Get(&PlayingTime);
 
 	    PlayingTime = (PlayingTime - (nDelayLen/nSampleSize * OMX_TICKS_PER_SECOND) / PcmMode.nSamplingRate) * ((float)nDNSeScale / Q16_SHIFT);
 	} else {
@@ -813,7 +811,7 @@ OMX_ERRORTYPE AudioRender::ProcessClkBuffer()
 	else if (pTimeBuffer->eUpdateType == OMX_TIME_UpdateScaleChanged)
     {
 		OMX_U32 playbackModePre = playbackMode;
-        OMX_TIME_CONFIG_PLAYBACKTYPE *pPlayback = (OMX_TIME_CONFIG_PLAYBACKTYPE *)pTimeBuffer->nClientPrivate;
+        OMX_TIME_CONFIG_PLAYBACKTYPE *pPlayback = (OMX_TIME_CONFIG_PLAYBACKTYPE *)(unsigned long)pTimeBuffer->nClientPrivate;
 		nClockScale = pTimeBuffer->xScale;
         playbackMode = pPlayback->ePlayMode;
 		LOG_DEBUG("nClockScale = %d\n", nClockScale);

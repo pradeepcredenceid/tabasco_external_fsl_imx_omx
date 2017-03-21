@@ -1,5 +1,5 @@
 /**
- *  Copyright (c) 2011-2014, Freescale Semiconductor Inc.,
+ *  Copyright (c) 2011-2016, Freescale Semiconductor Inc.,
  *  All Rights Reserved.
  *
  *  The following programs are the sole property of Freescale Semiconductor Inc.,
@@ -79,74 +79,51 @@ OMX_ERRORTYPE FslMuxer::DeInitMuxer()
     return OMX_ErrorNone;
 }
 
-// Written in +/-DD.DDDD format
-void writeLatitude(OMX_U8 *pBuffer, int degreex10000) {
-    bool isNegative = (degreex10000 < 0);
-    char sign = isNegative? '-': '+';
-
-    // Handle the whole part
-    char str[9];
-    int wholePart = degreex10000 / 10000;
-    if (wholePart == 0) {
-        snprintf(str, 5, "%c%.2d.", sign, wholePart);
-    } else {
-        snprintf(str, 5, "%+.2d.", wholePart);
-    }
-
-    // Handle the fractional part
-    int fractionalPart = degreex10000 - (wholePart * 10000);
-    if (fractionalPart < 0) {
-        fractionalPart = -fractionalPart;
-    }
-    snprintf(&str[4], 5, "%.4d", fractionalPart);
-
-    // Do not write the null terminator
-    fsl_osal_memcpy(pBuffer, str, 8);
-}
-
-// Written in +/- DDD.DDDD format
-void writeLongitude(OMX_U8 *pBuffer, int degreex10000) {
-    bool isNegative = (degreex10000 < 0);
-    char sign = isNegative? '-': '+';
-
-    // Handle the whole part
-    char str[10];
-    int wholePart = degreex10000 / 10000;
-    if (wholePart == 0) {
-        snprintf(str, 6, "%c%.3d.", sign, wholePart);
-    } else {
-        snprintf(str, 6, "%+.3d.", wholePart);
-    }
-
-    // Handle the fractional part
-    int fractionalPart = degreex10000 - (wholePart * 10000);
-    if (fractionalPart < 0) {
-        fractionalPart = -fractionalPart;
-    }
-    snprintf(&str[5], 5, "%.4d", fractionalPart);
-
-    // Do not write the null terminator
-    fsl_osal_memcpy(pBuffer, str, 9);
-}
-
-OMX_ERRORTYPE FslMuxer::AddLocationInfo(
-		OMX_S64 nLongitudex,
-		OMX_S64 nLatitudex)
+OMX_ERRORTYPE FslMuxer::AddLocationInfo(OMX_S64 nLongitudex,OMX_S64 nLatitudex)
 {
-	static uint8 metaData[20] = {0};
-	uint32 metaDataSize = 17;
-	DataFormat userDataFormat;
-	OMX_S32 nLatitudexInt = nLatitudex, nLongitudexInt = nLongitudex;
-	userDataFormat = DATA_FORMAT_UTF8;
+    static uint8 metaData[20] = {0};
+    uint32 metaDataSize = 17;
+    DataFormat userDataFormat = DATA_FORMAT_UTF8;
+    OMX_S32 nLatitudexInt = nLatitudex, nLongitudexInt = nLongitudex;
 
-	writeLatitude(metaData, nLatitudexInt);
-	writeLongitude(&metaData[7], nLongitudexInt);
-	LOG_DEBUG("location: %s\n", metaData);
-	if(MUXER_SUCCESS != hItf.SetMovieMetadata(hMuxer, METADATA_LOCATION, \
-				userDataFormat,  metaData, metaDataSize)) {
-		LOG_ERROR("Can't set location information.\n");
-		return OMX_ErrorUndefined;
-	}
+    OMX_S32 front = 0;
+    OMX_S32 end = 0;
+    OMX_S32 front2 = 0;
+    OMX_S32 end2 = 0;
+    if(nLatitudexInt < 0){
+        front = (- nLatitudexInt) / 10000;
+        end = (- nLatitudexInt) - front* 10000;
+        metaData[0] = '-';
+    }else{
+        front = nLatitudexInt/10000;
+        end = nLatitudexInt - front * 10000;
+        metaData[0] = '+';
+    }
+    snprintf((char*)&metaData[1],3,"%.2d",front);
+    metaData[3] = '.';
+    snprintf((char*)&metaData[4],5,"%.4d",end);
+
+    if(nLongitudexInt < 0){
+        front2 = (-nLongitudexInt)/10000;
+        end2 = (- nLongitudexInt) - front2* 10000;
+        metaData[8] = '-';
+    }else{
+        front2 = nLongitudexInt/10000;
+        end2 = nLongitudexInt - front2* 10000;
+        metaData[8] = '+';
+    }
+
+    snprintf((char*)&metaData[9],4,"%.3d",front2);
+    metaData[12] = '.';
+    snprintf((char*)&metaData[13],5,"%.4d",end2);
+
+    LOG_DEBUG("location: %s\n", metaData);
+
+    if(MUXER_SUCCESS != hItf.SetMovieMetadata(hMuxer, METADATA_LOCATION, \
+                userDataFormat,  metaData, metaDataSize)) {
+        LOG_ERROR("Can't set location information.\n");
+        return OMX_ErrorUndefined;
+    }
 
     return OMX_ErrorNone;
 }

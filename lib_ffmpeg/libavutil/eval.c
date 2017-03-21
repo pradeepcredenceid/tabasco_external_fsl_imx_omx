@@ -25,6 +25,7 @@
  *
  * see http://joe.hotchkiss.com/programming/eval/eval.html
  */
+#include <math.h>
 
 #include "libavutil/avutil.h"
 #include "eval.h"
@@ -49,7 +50,7 @@ typedef struct Parser {
 #ifdef offsetof
 #undef offsetof
 #endif
-#define offsetof(T, F) ((unsigned int)((char *)&((T *)0)->F))
+#define offsetof(T, F) ((unsigned long)((char *)&((T *)0)->F))
 static const AVClass class = { "Eval", av_default_item_name, NULL, LIBAVUTIL_VERSION_INT, offsetof(Parser,log_offset), offsetof(Parser,log_ctx) };
 
 static const int8_t si_prefixes['z' - 'E' + 1] = {

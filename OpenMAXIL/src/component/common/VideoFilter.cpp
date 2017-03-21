@@ -105,6 +105,7 @@ OMX_ERRORTYPE VideoFilter:: SetDefaultSetting()
     bLastOutput = OMX_FALSE;
     pCodecData = NULL;
     nCodecDataLen = 0;
+    bResourceChanged = OMX_FALSE;
     bFilterSupportFrmSizeRpt=OMX_FALSE;
     fsl_osal_memset(&PartialInputHdr, 0, sizeof(OMX_BUFFERHEADERTYPE));
     bInReturnBufferState = OMX_FALSE;
@@ -123,6 +124,10 @@ OMX_ERRORTYPE VideoFilter:: SetDefaultSetting()
 
     bNeedMapDecAndOutput=OMX_FALSE;   //default: needn't map decoded frame and output frame
     fsl_osal_memset(&outputCrop, 0, sizeof(OMX_CONFIG_RECTTYPE));
+
+    nMediaTime = 0;
+    nAnchorTime = 0;
+    bThreadedPreProcess = OMX_FALSE;
     return ret;
 }
 
@@ -292,7 +297,6 @@ OMX_ERRORTYPE VideoFilter::CheckPortResource(OMX_U32 nPortIndex)
     OMX_PARAM_PORTDEFINITIONTYPE sPortDef;
     OMX_VIDEO_PORTDEFINITIONTYPE *pFmt;
     OMX_U32 nBufferCnt = 0;
-    OMX_BOOL bResourceChanged = OMX_FALSE;
 
     OMX_INIT_STRUCT(&sPortDef, OMX_PARAM_PORTDEFINITIONTYPE);
     sPortDef.nPortIndex = nPortIndex;
@@ -309,14 +313,13 @@ OMX_ERRORTYPE VideoFilter::CheckPortResource(OMX_U32 nPortIndex)
 
     if(pFmt->nFrameWidth != sPortDef.format.video.nFrameWidth
             || pFmt->nFrameHeight != sPortDef.format.video.nFrameHeight
-            || nBufferCnt != sPortDef.nBufferCountActual) {
+            || nBufferCnt != sPortDef.nBufferCountMin) {
         LOG_INFO("Filter port #%d resource changed, need reconfigure.\n", nPortIndex);
         LOG_INFO("from %dx%dx%d to %dx%dx%d.\n",
                 sPortDef.format.video.nFrameWidth,
                 sPortDef.format.video.nFrameHeight,
-                sPortDef.nBufferCountActual,
+                sPortDef.nBufferCountMin,
                 pFmt->nFrameWidth, pFmt->nFrameHeight, nBufferCnt);
-
         bResourceChanged = OMX_TRUE;
         sPortDef.nBufferSize = pFmt->nFrameWidth * pFmt->nFrameHeight * pxlfmt2bpp(pFmt->eColorFormat) / 8;
         sPortDef.nBufferCountActual = nBufferCnt;
@@ -332,6 +335,7 @@ OMX_ERRORTYPE VideoFilter::CheckPortResource(OMX_U32 nPortIndex)
         SendEvent(OMX_EventPortSettingsChanged, nPortIndex, 0, NULL);
         LOG_DEBUG("Send Port setting changed event.\n");
         bInReturnBufferState = OMX_TRUE;
+        bResourceChanged = OMX_FALSE;
         return OMX_ErrorNotReady;
     }
 
@@ -450,8 +454,21 @@ OMX_ERRORTYPE VideoFilter::ProcessDataBuffer()
         return ret;
 
     ret = ProcessOutputBuffer();
-    if(ret != OMX_ErrorNone)
-        return ret;
+    if(ret != OMX_ErrorNone){
+        if(InBufferHdrList.GetNodeCnt() + (pInBufferHdr?1:0) >= 2
+            && bNeedOutBuffer == OMX_TRUE
+            && bThreadedPreProcess == OMX_TRUE)
+        {
+            // android.media.cts.MediaCodecTest#testReleaseAfterFlush
+            // keep checking until only 0 or 1 input buffer stays in vpu component 
+            // to make sure at least one input buffer can be fetched by upstream surface.
+            LOG_DEBUG("Keep checking input buffer from vpu while not encoding, InBufferHdrList %d", InBufferHdrList.GetNodeCnt());
+            fsl_osal_sleep(10000);
+            ret = OMX_ErrorNone;
+        }
+        else
+            return ret;
+    }
 
     FilterBufRetCode DecRet = FILTER_OK;
     DecRet = FilterOneBuffer();
@@ -501,7 +518,7 @@ OMX_ERRORTYPE VideoFilter::ProcessDataBuffer()
         OMX_PTR pFrm;
         ret=GetDecBuffer(&pFrm, &nStuffSize, &nFrmSize);
         if(ret == OMX_ErrorNone){
-            LOG_DEBUG("%s: get one decoded frm: 0x%X(%d,%d) \n",__FUNCTION__,(int)pFrm,(int)nStuffSize,(int)nFrmSize);
+            LOG_DEBUG("%s: get one decoded frm: 0x%X(%d,%d) \n",__FUNCTION__,(long)pFrm,(int)nStuffSize,(int)nFrmSize);
             tsmSetFrmBoundary(hTsHandle, nStuffSize, nFrmSize, pFrm);
         }
         else{
@@ -1056,5 +1073,44 @@ OMX_ERRORTYPE VideoFilter::SetCropInfo(OMX_CONFIG_RECTTYPE *sCrop)
 {
     return OMX_ErrorNotImplemented;
 }
+OMX_ERRORTYPE VideoFilter::SetMediaTime(OMX_S64 ts)
+{
+    fsl_osal_timeval time;
 
+    if(E_FSL_OSAL_SUCCESS != fsl_osal_systime(&time))
+        return OMX_ErrorUndefined;
+
+    nAnchorTime = time.sec * 1000000 + time.usec;
+    nMediaTime = ts;
+    return OMX_ErrorNone;
+}
+OMX_ERRORTYPE VideoFilter::GetMediaTime(OMX_S64 *ts)
+{
+    fsl_osal_timeval time;
+    OMX_S64 now;
+    OMX_S64 position;
+    if(ts == NULL){
+        return OMX_ErrorBadParameter;
+    }
+    if(nMediaTime <= 0){
+        return OMX_ErrorNotReady;
+    }
+
+    if(E_FSL_OSAL_SUCCESS != fsl_osal_systime(&time))
+        return OMX_ErrorUndefined;
+
+    now = time.sec * 1000000 + time.usec;
+    if(now < nAnchorTime){
+        return OMX_ErrorUndefined;
+    }
+    //nu player will call SetMediaTime() function every second, in playing state, current media time will be in the range.
+    //if not, it means nuplayer is not in playing state.
+    if(now < nAnchorTime + 2000000){
+        position = now - nAnchorTime + nMediaTime;
+        *ts = position;
+        return OMX_ErrorNone;
+    }else{
+        return OMX_ErrorNotReady;
+    }
+}
 /* File EOF */

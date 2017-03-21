@@ -42,7 +42,7 @@ WmvDecoder::WmvDecoder()
     sInFmt.nFrameWidth = 320;
     sInFmt.nFrameHeight = 240;
     sInFmt.xFramerate = 30 * Q16_SHIFT;
-    sInFmt.eColorFormat = OMX_COLOR_FormatYUV420Planar;
+    sInFmt.eColorFormat = OMX_COLOR_FormatUnused;
     sInFmt.eCompressionFormat = OMX_VIDEO_CodingWMV;
 
 	nInPortFormatCnt = 0;
@@ -77,6 +77,7 @@ WmvDecoder::WmvDecoder()
     eWmvDecState = WMVDEC_LOADED;
     hLib = NULL;
     libMgr  = NULL;
+    nTop = nLeft = 0;
 }
 
 OMX_ERRORTYPE WmvDecoder::GetParameter(
@@ -101,8 +102,7 @@ OMX_ERRORTYPE WmvDecoder::GetParameter(
                 break;
         }
         return OMX_ErrorNone;
-    }
-    else
+    }else
         return OMX_ErrorUnsupportedIndex;
 }
 
@@ -131,8 +131,15 @@ OMX_ERRORTYPE WmvDecoder::SetParameter(
                 ret = OMX_ErrorBadParameter;
                 break;
         }
-    }
-    else
+    } else if (nParamIndex==OMX_IndexParamStandardComponentRole){
+        return OMX_ErrorNone;
+    }else if(nParamIndex == OMX_IndexParamVideoDecChromaAlign){
+        OMX_U32* pAlignVal=(OMX_U32*)pComponentParameterStructure;
+        nChromaAddrAlign=*pAlignVal;
+        LOG_DEBUG("set OMX_IndexParamVideoDecChromaAlign: %d \r\n",nChromaAddrAlign);
+        if(nChromaAddrAlign==0) nChromaAddrAlign=1;
+        return OMX_ErrorNone;
+    }else
         ret = OMX_ErrorUnsupportedIndex;
 
     return ret;
@@ -153,7 +160,33 @@ OMX_ERRORTYPE WmvDecoder::GetConfig(OMX_INDEXTYPE nParamIndex, OMX_PTR pComponen
     else
         return OMX_ErrorUnsupportedIndex;
 }
+OMX_ERRORTYPE WmvDecoder::SetCropInfo(OMX_CONFIG_RECTTYPE *sCrop)
+{
+    if(sCrop == NULL || sCrop->nPortIndex != OUT_PORT)
+        return OMX_ErrorBadParameter;
 
+    sOutCrop.nTop = sCrop->nTop;
+    sOutCrop.nLeft = sCrop->nLeft;
+    sOutCrop.nWidth = sCrop->nWidth;
+    sOutCrop.nHeight = sCrop->nHeight;
+    LOG_DEBUG("SetCropInfo w=%d,h=%d",sCrop->nWidth,sCrop->nHeight);
+    return OMX_ErrorNone;
+}
+OMX_ERRORTYPE WmvDecoder::GetCropInfo(OMX_CONFIG_RECTTYPE *sCrop)
+{
+    if(sCrop == NULL)
+        return OMX_ErrorBadParameter;
+
+    if(sCrop->nPortIndex != OUT_PORT)
+        return OMX_ErrorUnsupportedIndex;
+
+    sCrop->nLeft = sOutCrop.nLeft;
+    sCrop->nTop = sOutCrop.nTop;
+    sCrop->nWidth = sOutCrop.nWidth;
+    sCrop->nHeight = sOutCrop.nHeight;
+    LOG_DEBUG("GetCropInfo w=%d,h=%d",sCrop->nWidth,sCrop->nHeight);
+    return OMX_ErrorNone;
+}
 OMX_ERRORTYPE WmvDecoder::SetInputBuffer(
         OMX_PTR pBuffer,
         OMX_S32 nSize,
@@ -313,25 +346,45 @@ OMX_ERRORTYPE WmvDecoder::GetOutputBuffer(OMX_PTR *ppBuffer,OMX_S32* pOutSize)
     OMX_S32 Usize = Ysize/4;
     OMX_S32 i;
     OMX_U8* y = (OMX_U8*)pOutBuffer;
-    OMX_U8* u = (OMX_U8*)ALIGN_CHROMA((OMX_U32)pOutBuffer+Ysize);
-    OMX_U8* v = (OMX_U8*)ALIGN_CHROMA((OMX_U32)u+Usize);
+    OMX_U8* u = (OMX_U8*)ALIGN_CHROMA((unsigned long)pOutBuffer+Ysize);
+    OMX_U8* v = (OMX_U8*)ALIGN_CHROMA((unsigned long)u+Usize);
     OMX_U8* ysrc=sDecObj.sDecParam.sOutputBuffer.pu8YBuf;
     OMX_U8* usrc=sDecObj.sDecParam.sOutputBuffer.pu8CbBuf;
     OMX_U8* vsrc=sDecObj.sDecParam.sOutputBuffer.pu8CrBuf;
 
     if(sOutFmt.eColorFormat != OMX_COLOR_Format16bitRGB565){
+        OMX_U32 yCopyRawSize = sDecObj.sDecParam.sOutputBuffer.s32YRowSize;
+        OMX_U32 uCopyRawSize = sDecObj.sDecParam.sOutputBuffer.s32CbRowSize;
+        OMX_U32 vCopyRawSize = sDecObj.sDecParam.sOutputBuffer.s32CrRowSize;
+
+        if(nLeft > 0){
+            ysrc += nLeft;
+            usrc += nLeft/2;
+            vsrc += nLeft/2;
+            yCopyRawSize -= nLeft;
+            uCopyRawSize -= nLeft/2;
+            vCopyRawSize -= nLeft/2;
+        }
         for(i=0;i<nPadHeight;i++)
         {
-            fsl_osal_memcpy((OMX_PTR)y, (OMX_PTR)ysrc, sDecObj.sDecParam.sOutputBuffer.s32YRowSize);
-            y+=sOutFmt.nFrameWidth;
+            if(nTop > 0 && i < nTop){
+                ;//skip top side frames;
+            }else{
+                fsl_osal_memcpy((OMX_PTR)y, (OMX_PTR)ysrc, yCopyRawSize);
+                y+=sOutFmt.nFrameWidth;
+            }
             ysrc+=sDecObj.sDecParam.sOutputBuffer.s32YRowSize;
         }
         for(i=0;i<nPadHeight/2;i++)
         {
-            fsl_osal_memcpy((OMX_PTR)u, (OMX_PTR)usrc, sDecObj.sDecParam.sOutputBuffer.s32CbRowSize);
-            fsl_osal_memcpy((OMX_PTR)v, (OMX_PTR)vsrc, sDecObj.sDecParam.sOutputBuffer.s32CrRowSize);
-            u+=sOutFmt.nFrameWidth/2;
-            v+=sOutFmt.nFrameWidth/2;
+            if(nTop > 0 && i < nTop/2){
+                ;//skip top side frames;
+            }else{
+                fsl_osal_memcpy((OMX_PTR)u, (OMX_PTR)usrc, uCopyRawSize);
+                fsl_osal_memcpy((OMX_PTR)v, (OMX_PTR)vsrc, vCopyRawSize);
+                u+=sOutFmt.nFrameWidth/2;
+                v+=sOutFmt.nFrameWidth/2;
+            }
             usrc+=sDecObj.sDecParam.sOutputBuffer.s32CbRowSize;
             vsrc+=sDecObj.sDecParam.sOutputBuffer.s32CrRowSize;
         }
@@ -359,7 +412,8 @@ OMX_ERRORTYPE WmvDecoder::GetOutputBuffer(OMX_PTR *ppBuffer,OMX_S32* pOutSize)
         //printf("frame w/h %d/%d, stride %d, color %d", in_fmt.nFrameWidth, in_fmt.nFrameHeight, in_fmt.nStride, out_fmt.eColorFormat);
 
         OMX_CONFIG_RECTTYPE crop;
-        crop.nLeft = crop.nTop = 0;
+        crop.nLeft = nLeft;
+        crop.nTop = nTop;
         crop.nWidth = sDecObj.sDecParam.sOutputBuffer.s32YRowSize;
         crop.nHeight = nPadHeight;
 
@@ -408,13 +462,18 @@ OMX_ERRORTYPE WmvDecoder::DetectOutputFmt()
     nOutBufferCnt = 3;
     sOutFmt.nFrameWidth = ALIGN_STRIDE(nPadWidth);
     sOutFmt.nFrameHeight = ALIGN_STRIDE(nPadHeight);
+    sOutFmt.nStride = sOutFmt.nFrameWidth;
+    sOutFmt.nSliceHeight = sOutFmt.nFrameHeight;
     nOutBufferSize = sOutFmt.nFrameWidth * sOutFmt.nFrameHeight * pxlfmt2bpp(sOutFmt.eColorFormat) / 8;
 
     sOutCrop.nLeft = (EXPANDY + 16) >> 1;
     sOutCrop.nTop = (EXPANDY + 16) >> 1;
-    sOutCrop.nWidth = sInFmt.nFrameWidth & (~7);
+    sOutCrop.nWidth = sInFmt.nFrameWidth;
     sOutCrop.nHeight = sInFmt.nFrameHeight;
-
+    nTop = sOutCrop.nTop;
+    nLeft = sOutCrop.nLeft;
+    sOutCrop.nTop = 0;
+    sOutCrop.nLeft = 0;
     LOG_DEBUG("nPadWidth: %d, nPadHeight: %d\n", nPadWidth, nPadHeight);
 
     VideoFilter::OutputFmtChanged();
@@ -531,7 +590,7 @@ OMX_ERRORTYPE WmvDecoder::AllocateDecoderMemory()
             if(pvUnalignedBuf == NULL)
                 return OMX_ErrorInsufficientResources;
 
-            psMemBlk->pvBuffer = (WMV9D_Void*)(((WMV9D_S32)pvUnalignedBuf + s32ExtraSize) & s32Mask);
+            psMemBlk->pvBuffer = (WMV9D_Void*)(((unsigned long)pvUnalignedBuf + s32ExtraSize) & s32Mask);
         }
         else
         {
@@ -622,14 +681,14 @@ OMX_S32 WmvDecoder::DoGetBitstream(
     }
 
     if(nInputSize > nLen) {
-        fsl_osal_memcpy(pBuffer, (OMX_PTR)((OMX_U32)pInBuffer + nInputOffset), nLen);
+        fsl_osal_memcpy(pBuffer, (OMX_PTR)((unsigned long)pInBuffer + nInputOffset), nLen);
         nInputOffset += nLen;
         nInputSize -= nLen;
         nRead = nLen;
         *pEndOfFrame = 0;
     }
     else {
-        fsl_osal_memcpy(pBuffer, (OMX_PTR)((OMX_U32)pInBuffer + nInputOffset), nInputSize);
+        fsl_osal_memcpy(pBuffer, (OMX_PTR)((unsigned long)pInBuffer + nInputOffset), nInputSize);
         nRead = nInputSize;
         nInputOffset += nInputSize;
         nInputSize = 0;

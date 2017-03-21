@@ -35,7 +35,7 @@ static const fsl_osal_s32 ac3_channel[] = {2,1,2,3,3,4,4,5};
 
 static efsl_osal_bool IsAC3FrameHeader(fsl_osal_u8 * pHeader,FRAME_INFO * Info)
 {
-    int fscod;
+    int fscod = 0;
     int frmsizecod;
     int bsid;
     int bsmode;

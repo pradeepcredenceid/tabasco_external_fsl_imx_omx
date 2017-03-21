@@ -99,6 +99,21 @@ role_priority=3;
 $
 
 @
+component_name=OMX.Freescale.std.audio_decoder.amrnb.sw-based;
+library_path=lib_omx_amr_dec_v2_arm11_elinux.so;
+component_entry_function=AmrDecInit;
+component_role=audio_decoder.amrnb;
+role_priority=3;
+$
+
+@
+component_name=OMX.Freescale.std.audio_decoder.amrwb.sw-based;
+library_path=lib_omx_amr_dec_v2_arm11_elinux.so;
+component_entry_function=AmrDecInit;
+component_role=audio_decoder.amrwb;
+role_priority=3;
+$
+@
 component_name=OMX.Freescale.std.parser.fsl.sw-based;
 library_path=lib_omx_fsl_parser_v2_arm11_elinux.so;
 component_entry_function=FslParserInit;

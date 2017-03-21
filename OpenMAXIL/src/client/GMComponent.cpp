@@ -199,6 +199,7 @@ OMX_ERRORTYPE GMComponent::Load(
         PortsInfo[i].nBuffers = sPortDef.nBufferCountActual;
         PortsInfo[i].nBufferSize = sPortDef.nBufferSize;
         PortsInfo[i].bFisrtPortSettingChanged=OMX_TRUE;  //init it in load(). for parser component, port setting changed event may happen before link()
+        PortsInfo[i].bufferNumberType = GM_MAXIMUM;
         fsl_osal_mutex_init(&PortsInfo[i].HoldBufferListLock, fsl_osal_mutex_normal);
     }
 
@@ -1204,6 +1205,14 @@ OMX_ERRORTYPE GMComponent::DoExec2Idle(
     return OMX_ErrorNone;
 }
 
+OMX_ERRORTYPE GMComponent::SetPortBufferNumberType(
+        OMX_U32 nPortIndex,
+        GM_BUFFERNUMBERTYPE eType)
+{
+    PortsInfo[nPortIndex].bufferNumberType = eType;
+    return OMX_ErrorNone;
+}
+
 OMX_ERRORTYPE GMComponent::SetPortBufferAllocateType(
         OMX_U32 nPortIndex,
         GM_BUFFERALLOCATER eAllocater)
@@ -1546,7 +1555,13 @@ OMX_ERRORTYPE GMComponent::DoPortSettingChanged(
 
     sPortDef2.format = sPortDef1.format;
     sPortDef2.nBufferSize = sPortDef1.nBufferSize;
-    sPortDef2.nBufferCountActual = sPortDef1.nBufferCountActual;
+    if(PortsInfo[nPortIndex].bufferNumberType == GM_CUMULATE){
+        OMX_U32 totalCount = sPortDef1.nBufferCountActual + sPortDef2.nBufferCountActual ;
+        sPortDef2.nBufferCountActual = sPortDef1.nBufferCountActual = totalCount;
+    }
+    else
+        sPortDef2.nBufferCountActual = sPortDef1.nBufferCountActual;
+
     ret = OMX_SetParameter(pPeer->hComponent, OMX_IndexParamPortDefinition, &sPortDef2);
     if(ret != OMX_ErrorNone) {
         LOG_ERROR("[%s:%d] set peer port definition [%s:%d] failed.\n", name, nPortIndex, pPeer->name, nPeerPortIndex);
@@ -1561,6 +1576,16 @@ OMX_ERRORTYPE GMComponent::DoPortSettingChanged(
         ret = PortDisable(nPortIndex);
         if(ret != OMX_ErrorNone)
             return ret;
+
+        if(PortsInfo[nPortIndex].bufferNumberType == GM_CUMULATE){
+            OMX_GetParameter(hComponent, OMX_IndexParamPortDefinition, &sPortDef1);
+            sPortDef1.nBufferCountActual = sPortDef2.nBufferCountActual;
+            ret = OMX_SetParameter(hComponent, OMX_IndexParamPortDefinition, &sPortDef1);
+            if(ret != OMX_ErrorNone) {
+                LOG_ERROR("[%s:%d] set port definition failed.\n", name, nPortIndex);
+                return ret;
+            }
+        }
 
         PortsInfo[nPortIndex].nBuffers = sPortDef1.nBufferCountActual;
         PortsInfo[nPortIndex].nBufferSize = sPortDef1.nBufferSize;

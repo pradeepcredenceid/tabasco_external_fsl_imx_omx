@@ -167,7 +167,12 @@
 #define   OMX_IndexParamBufferConsumer FSL_INDEXTYPE(66)
 #define   OMX_IndexParamCaptureFps FSL_INDEXTYPE(67)
 #define   OMX_IndexParamAndroidVersion FSL_INDEXTYPE(68)
-
+#define   OMX_IndexParamAudioOutputConvert FSL_INDEXTYPE(69)
+#define   OMX_IndexParamAudioSendFirstPortSettingChanged FSL_INDEXTYPE(70)
+#define   OMX_IndexConfigVideoMediaTime FSL_INDEXTYPE(71)
+#define   OMX_IndexParamStoreANWBufferInMetadata FSL_INDEXTYPE(72)
+//the value is got from OMX_IndexConfigOperatingRate in OMX_IndexExt.h from stagefright
+#define   OMX_IndexConfigAndroidOperatingRate ((OMX_INDEXTYPE)(OMX_IndexKhronosExtensions + 0x00800003))
 
 /**< fsl defined macro utils */
 #define MAX_NAME_LEN 128
@@ -606,6 +611,26 @@ typedef struct {
     OMX_U32 nLength;
 }OMX_PARAM_ANDROID_VERSION;
 
+typedef struct
+{
+    OMX_U32 nSize;              /**< size of the structure in bytes */
+    OMX_VERSIONTYPE nVersion;   /**< OMX specification version information */
+    OMX_BOOL bEnable;
+} OMX_PARAM_AUDIO_OUTPUT_CONVERT;
+
+typedef struct
+{
+    OMX_U32 nSize;              /**< size of the structure in bytes */
+    OMX_VERSIONTYPE nVersion;   /**< OMX specification version information */
+    OMX_BOOL bEnable;
+} OMX_PARAM_AUDIO_SEND_FIRST_PORT_SETTING_CHANGED;
+
+typedef struct
+{
+    OMX_U32 nSize;              /**< size of the structure in bytes */
+    OMX_VERSIONTYPE nVersion;   /**< OMX specification version information */
+    OMX_S64 nTime;
+} OMX_CONFIG_VIDEO_MEDIA_TIME;
 #endif
 
 /* File EOF */

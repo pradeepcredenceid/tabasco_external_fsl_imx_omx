@@ -54,6 +54,8 @@ class VideoFilter : public ComponentBase {
         OMX_ERRORTYPE InputFmtChanged();
         OMX_ERRORTYPE OutputFmtChanged();
         OMX_TICKS QueryStreamTs();
+        OMX_ERRORTYPE SetMediaTime(OMX_S64 ts);
+        OMX_ERRORTYPE GetMediaTime(OMX_S64 *ts);
     protected:
         OMX_VIDEO_PORTDEFINITIONTYPE sInFmt;
         OMX_VIDEO_PORTDEFINITIONTYPE sOutFmt;
@@ -72,7 +74,9 @@ class VideoFilter : public ComponentBase {
         OMX_BOOL bFilterSupportFrmSizeRpt;
         OMX_BOOL bNeedMapDecAndOutput;
         OMX_BOOL bInit;
+        OMX_BOOL bResourceChanged;
         OMX_ImageConvert* pImageConvert;
+        OMX_BOOL bThreadedPreProcess;
     private:
         OMX_BUFFERHEADERTYPE PartialInputHdr;
         OMX_BUFFERHEADERTYPE *pInBufferHdr;
@@ -89,7 +93,8 @@ class VideoFilter : public ComponentBase {
         OMX_BOOL bNeedInputBuffer;
 		OMX_U32 nInvalidFrameCnt;
         OMX_CONFIG_RECTTYPE outputCrop;
-
+        OMX_S64 nMediaTime;
+        OMX_S64 nAnchorTime;
         OMX_ERRORTYPE InitComponent();
         OMX_ERRORTYPE DeInitComponent();
         OMX_ERRORTYPE PortFormatChanged(OMX_U32 nPortIndex);

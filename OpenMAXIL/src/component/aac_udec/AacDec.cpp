@@ -210,12 +210,10 @@ OMX_ERRORTYPE AacDec::UniaDecoderGetParameter(UA_ParaType index,OMX_S32 * value)
         case UNIA_STREAM_TYPE:
             if(AacType.eAACStreamFormat == OMX_AUDIO_AACStreamFormatMP2ADTS){
                 *value = STREAM_ADTS;
-                if(DEC_STREAM_MODE == ePlayMode){
-                    frameInput = OMX_TRUE;
-                }
             }else if(AacType.eAACStreamFormat == OMX_AUDIO_AACStreamFormatADIF){
                 *value = STREAM_ADIF;
-            }else if(AacType.eAACStreamFormat == OMX_AUDIO_AACStreamFormatRAW){
+            }else if(AacType.eAACStreamFormat == OMX_AUDIO_AACStreamFormatRAW ||
+                     AacType.eAACStreamFormat == OMX_AUDIO_AACStreamFormatMP4FF){
                 *value = STREAM_RAW;
                 frameInput = OMX_TRUE;
             }else{
@@ -303,16 +301,36 @@ OMX_ERRORTYPE AacDec::UniaDecoderParseFrame(OMX_U8* pBuffer,OMX_U32 len,UniaDecF
 
     fsl_osal_memset(&FrameInfo, 0, sizeof(AUDIO_FRAME_INFO));
 
-    if(AFP_SUCCESS == AacCheckFrame(&FrameInfo, pBuffer, len)){
-        info->bGotOneFrame = FrameInfo.bGotOneFrame;
-        info->nConsumedOffset = FrameInfo.nConsumedOffset;
-        info->nHeaderCount = FrameInfo.nHeaderCount;
-        info->nHeaderSize = FrameInfo.nHeaderSize;
-        info->nFrameSize = FrameInfo.nFrameSize;
-        info->nNextSize = FrameInfo.nNextFrameSize;
+    if(OMX_AUDIO_AACStreamFormatRAW != AacType.eAACStreamFormat){
+        if(AFP_SUCCESS == AacCheckFrame(&FrameInfo, pBuffer, len)){
+            info->bGotOneFrame = FrameInfo.bGotOneFrame;
+            info->nConsumedOffset = FrameInfo.nConsumedOffset;
+            info->nHeaderCount = FrameInfo.nHeaderCount;
+            info->nHeaderSize = FrameInfo.nHeaderSize;
+            info->nFrameSize = FrameInfo.nFrameSize;
+            info->nNextSize = FrameInfo.nNextFrameSize;
+        }
+    }else{
+        info->bGotOneFrame = E_FSL_OSAL_TRUE;
+        info->nFrameSize = len;
+        info->nNextSize = len/2;
     }
 
     return OMX_ErrorNone;
+}
+
+OMX_ERRORTYPE AacDec::AudioFilterHandleEOS()
+{
+    OMX_ERRORTYPE ret = OMX_ErrorNone;
+    OMX_U32 padding = 0;
+
+    // pad the end of the stream with one buffer of which the value are all 2(avoid gap/overlap),
+    // since that the actual last buffer isn't sent by aac decoder.
+    padding = AACD_FRAME_SIZE * AacType.nChannels * sizeof(OMX_S16);
+    fsl_osal_memset(pOutBufferHdr->pBuffer + pOutBufferHdr->nOffset + pOutBufferHdr->nFilledLen, 2, padding);
+    pOutBufferHdr->nFilledLen += padding;
+
+    return ret;
 }
 
 /**< C style functions to expose entry point for the shared library */

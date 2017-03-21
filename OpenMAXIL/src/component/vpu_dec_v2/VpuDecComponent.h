@@ -206,7 +206,9 @@ class VpuDecoder : public VideoFilter {
 		OMX_S32 nFrameHeightStride;	//user may register frames with specified height stride
 		OMX_S32 nFrameMaxCnt;		//user may register frames with specified count
 		OMX_BOOL bReorderDisabled;
+        OMX_BOOL bDropPB;
 
+        OMX_U32 nRegisterFramePhyAddr;
 		OMX_ERRORTYPE SetRoleFormat(OMX_STRING role);
 		OMX_ERRORTYPE GetParameter(OMX_INDEXTYPE nParamIndex, OMX_PTR pComponentParameterStructure);
 		OMX_ERRORTYPE SetParameter(OMX_INDEXTYPE nParamIndex, OMX_PTR pComponentParameterStructure);
@@ -243,6 +245,9 @@ class VpuDecoder : public VideoFilter {
 		OMX_ERRORTYPE ReleaseVpuSource();
         OMX_ERRORTYPE GetCropInfo(OMX_CONFIG_RECTTYPE *sCrop);
         OMX_ERRORTYPE SetCropInfo(OMX_CONFIG_RECTTYPE *sCrop);
+        OMX_ERRORTYPE CheckDropB(VpuDecHandle InHandle,OMX_TICKS nTimeStamp,OMX_PTR pClock,VPUCompSemaphor psem);
+        OMX_ERRORTYPE ConfigVpu(VpuDecHandle InHandle,VpuDecConfig config,OMX_S32 param,VPUCompSemaphor psem);
+
 };
 
 #endif

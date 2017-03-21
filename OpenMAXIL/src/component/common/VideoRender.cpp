@@ -289,7 +289,7 @@ OMX_ERRORTYPE VideoRender::ProcessClkBuffer()
         case OMX_TIME_UpdateScaleChanged:
             {
                 OMX_TIME_CONFIG_PLAYBACKTYPE *pPlayback = NULL;
-                pPlayback = (OMX_TIME_CONFIG_PLAYBACKTYPE *)pUpdate->nClientPrivate;
+                pPlayback = (OMX_TIME_CONFIG_PLAYBACKTYPE *)(unsigned long)pUpdate->nClientPrivate;
                 ClockScale = pUpdate->xScale;
                 playbackMode = pPlayback->ePlayMode;
             }
@@ -297,7 +297,7 @@ OMX_ERRORTYPE VideoRender::ProcessClkBuffer()
         case OMX_TIME_UpdateRequestFulfillment:
             {
                 OMX_BUFFERHEADERTYPE *pBufferHdr = NULL;
-                pBufferHdr = (OMX_BUFFERHEADERTYPE*)pUpdate->nClientPrivate;
+                pBufferHdr = (OMX_BUFFERHEADERTYPE*)(unsigned long)pUpdate->nClientPrivate;
                 if(pBufferHdr->nFlags & OMX_BUFFERFLAG_EOS) {
                     RenderFrame(pBufferHdr);
                     SendEvent(OMX_EventBufferFlag, IN_PORT, OMX_BUFFERFLAG_EOS, NULL);

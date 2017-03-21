@@ -469,7 +469,13 @@ OMX_ERRORTYPE LibavVideoDec::InitFilter()
         return OMX_ErrorUndefined;
     }
 
-    n = sysconf(_SC_NPROCESSORS_CONF);
+#if defined(_SC_NPROCESSORS_ONLN)
+        n  = sysconf(_SC_NPROCESSORS_ONLN);
+#else
+        // _SC_NPROC_ONLN must be defined...
+        n  = sysconf(_SC_NPROC_ONLN);
+#endif
+
     if (n < 1)
         n = 1;
     LOG_INFO("configure processor count: %d\n", n);
@@ -587,6 +593,7 @@ typedef struct
 static const PixToFmt pixtofmttable[] = {
     {OMX_COLOR_FormatYUV420Planar, PIX_FMT_YUV420P},
     {OMX_COLOR_FormatYUV420SemiPlanar, PIX_FMT_NV12},
+    {OMX_COLOR_FormatYUV420Planar, PIX_FMT_YUVJ420P},
 };
 
 static OMX_COLOR_FORMATTYPE LibavFmtToOMXFmt(enum PixelFormat pixfmt)
@@ -702,7 +709,7 @@ FilterBufRetCode LibavVideoDec::DecodeOneFrame()
      * damaged mpeg streams) */
     /* ensure allocate more FF_INPUT_BUFFER_PADDING_SIZE for input buffer. */
     if(pInBuffer) {
-        fsl_osal_memset((fsl_osal_ptr)((OMX_U32)pInBuffer + nInputSize), 0, \
+        fsl_osal_memset((fsl_osal_ptr)((unsigned long)pInBuffer + nInputSize), 0, \
                 FF_INPUT_BUFFER_PADDING_SIZE);
     }
     pkt.data = (uint8_t *)pInBuffer;
@@ -726,9 +733,19 @@ FilterBufRetCode LibavVideoDec::DecodeOneFrame()
             bOutEos = OMX_TRUE;
             return ret;
         } else {
-            ret = (FilterBufRetCode) (ret | FILTER_LAST_OUTPUT);
-            eDecState = LIBAV_DEC_STOP;
-            return ret;
+            if (len >= 0 && got_picture == 0) {
+                //  try one more time to get decoder output in case of there is still output data in internal decoder.
+                int lenTmp = 0;
+                AVPacket pktTemp;
+                fsl_osal_memset(&pktTemp, 0, sizeof(AVPacket));
+                lenTmp = avcodec_decode_video2(codecContext, picture, &got_picture, &pktTemp);
+            }
+
+            if (len < 0 || got_picture == 0) {
+                ret = (FilterBufRetCode) (ret | FILTER_LAST_OUTPUT);
+                eDecState = LIBAV_DEC_STOP;
+                return ret;
+            }
         }
     }
 
@@ -761,7 +778,7 @@ FilterBufRetCode LibavVideoDec::DecodeOneFrame()
             LOG_DEBUG("LibavVideoDec::DecodeOneFrame 2 DetectOutputFmt %d,%d,%d,%d\n",
                 codecContext->width,sOutCrop.nWidth,codecContext->height,sOutCrop.nHeight);
             DetectOutputFmt();
-        }else if((OMX_U32)codecContext->width > sOutFmt.nFrameWidth || (OMX_U32)codecContext->height > 
+        }else if((OMX_U32)codecContext->width > sOutFmt.nFrameWidth || (OMX_U32)codecContext->height >
             sOutFmt.nFrameHeight){
              //for adaptive playback, send port setting changed event only when sOutCrop.nWidth > nFrameWidthStride
             LOG_DEBUG("LibavVideoDec::DecodeOneFrame 1 DetectOutputFmt for adaptive playback\n");
@@ -797,8 +814,8 @@ OMX_ERRORTYPE LibavVideoDec::GetOutputBuffer(OMX_PTR *ppBuffer,OMX_S32* pOutSize
     OMX_S32 Usize = Ysize/4;
     OMX_S32 i;
     OMX_U8* y = (OMX_U8*)pOutBuffer;
-    OMX_U8* u = (OMX_U8*)ALIGN_CHROMA((OMX_U32)pOutBuffer+Ysize);
-    OMX_U8* v = (OMX_U8*)ALIGN_CHROMA((OMX_U32)u+Usize);
+    OMX_U8* u = (OMX_U8*)ALIGN_CHROMA((unsigned long)pOutBuffer+Ysize);
+    OMX_U8* v = (OMX_U8*)ALIGN_CHROMA((unsigned long)u+Usize);
     OMX_U8* ysrc;
     OMX_U8* usrc;
     OMX_U8* vsrc;
@@ -823,6 +840,8 @@ OMX_ERRORTYPE LibavVideoDec::GetOutputBuffer(OMX_PTR *ppBuffer,OMX_S32* pOutSize
         ysrc = picture->data[0];
         usrc = picture->data[1];
         vsrc = picture->data[2];
+
+        fsl_osal_memset(pOutBuffer, 0, Ysize*3/2);
 
         LOG_DEBUG("libav dec get output buffer: %p\n", pOutBuffer);
         for(i=0;i<codecContext->height;i++)

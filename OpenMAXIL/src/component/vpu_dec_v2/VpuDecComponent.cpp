@@ -17,8 +17,8 @@
 #define Max(a,b)	((OMX_S32)(a)>=(OMX_S32)(b)?(a):(b))
 
 //#define VPU_COMP_DIS_POST			//disable post-process
-#define DEFAULT_BUF_IN_CNT			0x1
-#define DEFAULT_BUF_IN_SIZE		(1024*1024)
+#define DEFAULT_BUF_IN_CNT			0x3
+#define DEFAULT_BUF_IN_SIZE		(1048576)//1*1024*1024
 #define DEFAULT_BUF_OUT_POST_ZEROCNT (0)
 #define DEFAULT_BUF_OUT_POST_CNT	(5)	//5 will bring better performance than 4
 #define DEFAULT_BUF_OUT_DEC_CNT	(3)
@@ -49,13 +49,14 @@
 #define FRAME_SURPLUS	(0)
 #define FRAME_MIN_FREE_THD		(((nOutBufferCntDec-2)>2)?(nOutBufferCntDec-2):2)//(nOutBufferCntDec-1)
 #else
-#define FRAME_SURPLUS	(3)
+#define FRAME_SURPLUS	(0)
 //#define FRAME_MIN_FREE_THD	((nOutBufferCntDec-FRAME_SURPLUS)-1)	// eg => FrameBuffers must be > (nMinFrameBufferCount - 1)
 /*
 to improve performance with limited frame buffers, we may set smaller threshold for FRAME_MIN_FREE_THD
 for smaller FRAME_MIN_FREE_THD, vpu wrapper may return VPU_DEC_NO_ENOUGH_BUF_***
 */
-#define FRAME_MIN_FREE_THD ((nOutBufferCntDec-FRAME_SURPLUS)-3) //adjust performance: for clip: Divx5_1920x1080_30fps_19411kbps_MP3_44.1khz_112kbps_JS.avi
+#define FRAME_MIN_FREE_THD (sInitInfo.nMinFrameBufferCount-3) //adjust performance: for clip: Divx5_1920x1080_30fps_19411kbps_MP3_44.1khz_112kbps_JS.avi
+
 #endif
 #define FRAME_POST_MIN_FREE_THD	(2)//(nOutBufferCntPost-2)
 #define POST_INDEX_EOS			(0x1)
@@ -660,7 +661,8 @@ OMX_S32 FramePoolCreateDecoderRegisterFrame(
 	VpuFrameBuffer* pOutRegisterFrame,VpuDecoderFrmPoolInfo* pInOutFrmPool,
 	OMX_S32 nInRequiredCnt,OMX_S32 nPadW,OMX_S32 nPadH,
 	VpuDecoderMemInfo* pOutDecMemInfo,
-	OMX_PARAM_MEM_OPERATOR* pMemOp,OMX_COLOR_FORMATTYPE colorFormat,OMX_U32 nInChromaAlign)
+	OMX_PARAM_MEM_OPERATOR* pMemOp,OMX_COLOR_FORMATTYPE colorFormat,OMX_U32 nInChromaAlign,
+	OMX_U32 * nPhyAddr)
 {
 	VpuDecRetCode ret;
 	VpuMemDesc vpuMem;
@@ -766,6 +768,9 @@ OMX_S32 FramePoolCreateDecoderRegisterFrame(
 	pOutDecMemInfo->phyMem_cpuAddr[pOutDecMemInfo->nPhyNum]=vpuMem.nCpuAddr;
 	pOutDecMemInfo->phyMem_size[pOutDecMemInfo->nPhyNum]=vpuMem.nSize;
 	pOutDecMemInfo->nPhyNum++;
+
+    if(nPhyAddr != NULL)
+        *nPhyAddr = (OMX_U32)vpuMem.nPhyAddr;
 
 	//fill mv info
 	ptr=(OMX_U8*)vpuMem.nPhyAddr;
@@ -1360,50 +1365,67 @@ OMX_ERRORTYPE OpenVpu(VpuDecHandle* pOutHandle, VpuMemInfo* pInMemInfo,
 	return OMX_ErrorNone;
 }
 
-#ifdef VPU_DEC_COMP_DROP_B
-OMX_ERRORTYPE ConfigVpu(VpuDecHandle InHandle,OMX_TICKS nTimeStamp,OMX_PTR pClock,VPUCompSemaphor psem)
+OMX_ERRORTYPE VpuDecoder::CheckDropB(VpuDecHandle InHandle,OMX_TICKS nTimeStamp,OMX_PTR pClock,VPUCompSemaphor psem)
 {
-	VpuDecRetCode ret;
-	OMX_TIME_CONFIG_TIMESTAMPTYPE sCur;
-        OMX_TIME_CONFIG_SCALETYPE sScale;
-	VpuDecConfig config;
-	OMX_S32 param;
+    OMX_ERRORTYPE ret;
+    VpuDecConfig config;
+    OMX_S32 param;
+    OMX_S64 media_ts = 0;
+    if(bDropPB)
+        return OMX_ErrorNone;
 
-	if(pClock!=NULL)
-	{
-            OMX_TIME_CONFIG_PLAYBACKTYPE sPlayback;
-            OMX_INIT_STRUCT(&sPlayback, OMX_TIME_CONFIG_PLAYBACKTYPE);
-            OMX_GetConfig(pClock, OMX_IndexConfigPlaybackRate, &sPlayback);
-            if(sPlayback.ePlayMode != NORMAL_MODE){
-                VPU_COMP_LOG("*** not normal playback for drop B, return");
-                return OMX_ErrorNone;
-            }
-		OMX_INIT_STRUCT(&sCur, OMX_TIME_CONFIG_TIMESTAMPTYPE);
-		OMX_GetConfig(pClock, OMX_IndexConfigTimeCurrentMediaTime, &sCur);
-		if(sCur.nTimestamp > (nTimeStamp - DROP_B_THRESHOLD))
-		{
-			VPU_COMP_LOG("drop B frame \r\n");
-			config=VPU_DEC_CONF_SKIPMODE;
-			param=VPU_DEC_SKIPB;
-		}
-		else
-		{
-			config=VPU_DEC_CONF_SKIPMODE;
-			param=VPU_DEC_SKIPNONE;
-		}
-		VPU_COMP_SEM_LOCK(psem);
-		ret=VPU_DecConfig(InHandle, config, (void*)(&param));
-		VPU_COMP_SEM_UNLOCK(psem);
-		if(VPU_DEC_RET_SUCCESS!=ret)
-		{
-			VPU_COMP_ERR_LOG("%s: vpu config failure: config=0x%X, ret=%d \r\n",__FUNCTION__,config,ret);
-			return OMX_ErrorHardware;
-		}
-	}
+    if(pClock!=NULL)
+    {
+        OMX_TIME_CONFIG_TIMESTAMPTYPE sCur;
+        OMX_TIME_CONFIG_PLAYBACKTYPE sPlayback;
+        OMX_INIT_STRUCT(&sPlayback, OMX_TIME_CONFIG_PLAYBACKTYPE);
+        OMX_GetConfig(pClock, OMX_IndexConfigPlaybackRate, &sPlayback);
+        if(sPlayback.ePlayMode != NORMAL_MODE){
+            VPU_COMP_LOG("*** not normal playback for drop B, return");
+            return OMX_ErrorNone;
+        }
+        OMX_INIT_STRUCT(&sCur, OMX_TIME_CONFIG_TIMESTAMPTYPE);
+        OMX_GetConfig(pClock, OMX_IndexConfigTimeCurrentMediaTime, &sCur);
+        media_ts = sCur.nTimestamp;
+    }else if(OMX_ErrorNone != GetMediaTime(&media_ts))
+        return OMX_ErrorNone;
 
-	return OMX_ErrorNone;
+    if(media_ts <= 0)
+        return OMX_ErrorNone;
+
+    if(media_ts > (nTimeStamp - DROP_B_THRESHOLD))
+    {
+        VPU_COMP_LOG("drop B frame \r\n");
+        config=VPU_DEC_CONF_SKIPMODE;
+        param=VPU_DEC_SKIPB;
+    }
+    else
+    {
+        config=VPU_DEC_CONF_SKIPMODE;
+        param=VPU_DEC_SKIPNONE;
+    }
+
+    ret = ConfigVpu(InHandle,config,param,psem);
+
+    return ret;
 }
-#endif
+OMX_ERRORTYPE VpuDecoder::ConfigVpu(VpuDecHandle InHandle,VpuDecConfig config,OMX_S32 param,VPUCompSemaphor psem)
+{
+    VpuDecRetCode ret;
+    if(InHandle == NULL)
+        return OMX_ErrorBadParameter;
+
+    VPU_COMP_SEM_LOCK(psem);
+    ret=VPU_DecConfig(InHandle, config, (void*)(&param));
+    VPU_COMP_SEM_UNLOCK(psem);
+    if(VPU_DEC_RET_SUCCESS!=ret)
+    {
+        VPU_COMP_ERR_LOG("%s: vpu config failure: config=0x%X, ret=%d \r\n",__FUNCTION__,config,ret);
+        return OMX_ErrorHardware;
+    }
+
+    return OMX_ErrorNone;
+}
 
 OMX_COLOR_FORMATTYPE ConvertMjpgColorFormat(OMX_S32 sourceFormat,OMX_COLOR_FORMATTYPE oriColorFmt)
 {
@@ -1897,6 +1919,8 @@ OMX_ERRORTYPE VpuDecoder::SetDefaultSetting()
 	pPostMutex=NULL;
 
 	bReorderDisabled=OMX_FALSE;
+    bDropPB = OMX_FALSE;
+    nRegisterFramePhyAddr = 0;
 	return OMX_ErrorNone;
 }
 
@@ -2450,7 +2474,6 @@ OMX_ERRORTYPE VpuDecoder::SetConfig(OMX_INDEXTYPE nIndex, OMX_PTR pComponentConf
 {
 	OMX_ERRORTYPE eRetVal = OMX_ErrorNone;
 	OMX_CONFIG_CLOCK *pC;
-
 	if(pComponentConfigStructure == NULL)
 	{
 		return OMX_ErrorBadParameter;
@@ -2462,6 +2485,22 @@ OMX_ERRORTYPE VpuDecoder::SetConfig(OMX_INDEXTYPE nIndex, OMX_PTR pComponentConf
 			pC = (OMX_CONFIG_CLOCK*) pComponentConfigStructure;
 			pClock = pC->hClock;
 			break;
+        case OMX_IndexConfigVideoMediaTime:
+        {
+            OMX_CONFIG_VIDEO_MEDIA_TIME *pInfo = (OMX_CONFIG_VIDEO_MEDIA_TIME*)pComponentConfigStructure;
+            SetMediaTime(pInfo->nTime);
+            break;
+        }
+        case OMX_IndexConfigAndroidOperatingRate:
+        {
+            OMX_PARAM_U32TYPE *pInfo = (OMX_PARAM_U32TYPE*)pComponentConfigStructure;
+            float speed = (float)pInfo->nU32 / (float)Q16_SHIFT;
+            if(speed > 80.0){
+                bDropPB = OMX_TRUE;
+            }else
+                bDropPB = OMX_FALSE;
+            break;
+        }
 		default:
 			return eRetVal;
 	}
@@ -2732,7 +2771,15 @@ OMX_ERRORTYPE VpuDecoder::InitFilter()
 		nHeightStride=nFrameHeightStride;
 		VPU_DecDisCapability(nHandle,VPU_DEC_CAP_RESOLUTION_CHANGE);
 	}
-	BufNum=FramePoolCreateDecoderRegisterFrame(frameBuf, &sFramePoolInfo,nOutBufferCntDec,nWidthStride, nHeightStride, &sVpuMemInfo,&sMemOperator,sOutFmt.eColorFormat,nChromaAddrAlign);
+
+	if(nOutBufferCnt != nOutBufferCntDec + nOutBufferCntPost){
+	    // nOutBufferCnt could be modified in PortSettingChanged() , need to check and update nOutBufferCntDec
+	    VPU_COMP_LOG("InitFilter: nOutBufferCnt was modified %d->%d, modify nOutBufferCntDec %d->%d"
+            , nOutBufferCntDec + nOutBufferCntPost, nOutBufferCnt, nOutBufferCntDec, nOutBufferCnt - nOutBufferCntPost);
+	    nOutBufferCntDec = nOutBufferCnt - nOutBufferCntPost;
+	}
+	BufNum=FramePoolCreateDecoderRegisterFrame(frameBuf, &sFramePoolInfo, nOutBufferCntDec, nWidthStride, nHeightStride, &sVpuMemInfo,&sMemOperator,sOutFmt.eColorFormat,nChromaAddrAlign,&nRegisterFramePhyAddr);
+
 	if(-1==BufNum)
 	{
 		VPU_COMP_ERR_LOG("%s: create register frame failure \r\n",__FUNCTION__);
@@ -2860,6 +2907,12 @@ RepeatPlay:
 			VPU_COMP_LOG("%s: waiting frames ready, return and do nothing \r\n",__FUNCTION__);
 			return bufRet;//OMX_ErrorNone;
 		case VPU_COM_STATE_LOADED:
+			if(nInSize == 0){
+				if(bInEos)
+					return (FilterBufRetCode)(FILTER_INPUT_CONSUMED|FILTER_LAST_OUTPUT);
+				else if(pInBuffer == (OMX_PTR)INVALID)
+					return (FilterBufRetCode)FILTER_NO_INPUT_BUFFER;
+			}
 			//load vpu
 			VPU_COMP_SEM_LOCK(psemaphore);
 			ret=VPU_DecLoad();
@@ -3065,17 +3118,21 @@ RepeatPlay:
 #if 0  //FIXME: if disable drop B for some tough interlaced clips(1080p), it will impact the performance heavily
         if((bEnabledPostProcess==OMX_FALSE)||(HIGH_MOTION==nPostMotion)) //post thread may detect frame/field type context, so shouldn't drop any fra
 #endif
+    if(bDropPB){
+        if(OMX_ErrorNone != ConfigVpu(nHandle,VPU_DEC_CONF_SKIPMODE,VPU_DEC_SKIPPB,psemaphore))
+            return FILTER_ERROR;
+    }else
+    {
+        OMX_TICKS nTimeStamp;
+        nTimeStamp=QueryStreamTs();
+        if(nTimeStamp >= 0)
         {
-            OMX_TICKS nTimeStamp;
-            nTimeStamp=QueryStreamTs();
-            if(nTimeStamp >= 0)
+            if(OMX_ErrorNone!=CheckDropB(nHandle,nTimeStamp,pClock,psemaphore))
             {
-                if(OMX_ErrorNone!=ConfigVpu(nHandle,nTimeStamp,pClock,psemaphore))
-                {
-                    return FILTER_ERROR;
-                }
+                return FILTER_ERROR;
             }
         }
+    }
 #endif
 
 	VPU_COMP_SEM_LOCK(psemaphore);
@@ -3176,6 +3233,31 @@ RepeatPlay:
 			}
 			PostProcessIPUDeinit(&sIpuHandle);
 		}
+
+        if(sVpuMemInfo.nPhyNum > 0 && nRegisterFramePhyAddr != 0){
+            OMX_U32 i = 0;
+            for(i=0;i<VPU_DEC_MAX_NUM_MEM;i++)
+            {
+                if(sVpuMemInfo.phyMem_phyAddr[i] == nRegisterFramePhyAddr)
+                {
+                    VpuMemDesc vpuMem;
+                    vpuMem.nSize = sVpuMemInfo.phyMem_size[i];
+                    vpuMem.nPhyAddr = sVpuMemInfo.phyMem_phyAddr[i];
+                    vpuMem.nVirtAddr = sVpuMemInfo.phyMem_virtAddr[i];
+                    vpuMem.nCpuAddr = sVpuMemInfo.phyMem_cpuAddr[i];
+
+                    VPU_COMP_LOG("MemFreeBlock call VPU_DecFreeMem_Wrapper %x",vpuMem.nPhyAddr);
+                    VPU_DecFreeMem_Wrapper(&vpuMem,&sMemOperator);
+                    sVpuMemInfo.phyMem_phyAddr[i]=NULL;
+                    sVpuMemInfo.phyMem_virtAddr[i]=NULL;
+                    sVpuMemInfo.phyMem_cpuAddr[i]=NULL;
+                    sVpuMemInfo.phyMem_size[i]=0;
+                    sVpuMemInfo.nPhyNum --;
+                    nRegisterFramePhyAddr = 0;
+                    break;
+                }
+            }
+        }
 
 		//get new init info to re-set some variables
 		ret=ProcessVpuInitInfo();
@@ -3895,17 +3977,9 @@ FilterBufRetCode VpuDecoder::ProcessVpuInitInfo()
 	if((sInitInfo.nMinFrameBufferCount+FRAME_SURPLUS)!=(OMX_S32)nOutBufferCntDec)
 	{
 		nOutBufferCntDec=sInitInfo.nMinFrameBufferCount+FRAME_SURPLUS;
-		nChanged=1;
 	}
-#if 1	//workaround for ENGR00171878: we should make sure porting change event always be triggered
-	else
-	{
-		VPU_COMP_LOG("plus one buffer cnt manually: original cnt: %d, new cnt: %d \r\n",nOutBufferCntDec,nOutBufferCntDec+1);
-		nOutBufferCntDec++;
-		sInitInfo.nMinFrameBufferCount++;
-		nChanged=1;
-	}
-#endif
+
+    nChanged = 1;
 
 	PostProcessSetStrategy(&sInitInfo,&bEnabledPostProcess,&nOutBufferCntPost,eFormat,&nPostMotion);
 	if(bEnabledPostProcess)
@@ -4022,6 +4096,7 @@ FilterBufRetCode VpuDecoder::ProcessVpuInitInfo()
 		nOutBufferSize=sOutFmt.nFrameWidth * sOutFmt.nFrameHeight*pxlfmt2bpp(sOutFmt.eColorFormat)/8;
         sOutFmt.nStride = sOutFmt.nFrameWidth;
         sOutFmt.nSliceHeight = sOutFmt.nFrameHeight;
+        bResourceChanged = OMX_TRUE;
 		OutputFmtChanged();
 	}
 
